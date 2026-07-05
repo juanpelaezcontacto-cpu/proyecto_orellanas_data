@@ -5,6 +5,12 @@
 #include <Adafruit_MAX31865.h>
 #include <ArduinoJson.h>
 #include <PZEM004Tv30.h>
+#include <WiFi.h>
+#include <HTTPClient.h>
+
+// Credenciales de la red Wi-Fi
+const char* ssid = "MALEJA_2.4";
+const char* password = "macp092021";
 
 // Pines conexion UART PZEM004T Sensor de V/I/P/Energía/f/pf/
 #define RXD2 16
@@ -220,8 +226,8 @@ void crearYenviarJSON() {
   JsonDocument doc;
   // Registro de errores de todos los sensores
   doc["err_max"]  = err_max;
-  doc["err_sht1"] = err_sht1;
-  doc["err_sht2"] = err_sht2;
+  doc["err_sht1"] = err_sht1; //Exterior
+  doc["err_sht2"] = err_sht2; //Interior
   doc["err_scd"]  = err_scd;
   doc["err_pzem"] = err_pzem;
   // Telemetría Sensores
