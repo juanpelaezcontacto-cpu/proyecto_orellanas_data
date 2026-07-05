@@ -141,9 +141,8 @@ while True:
                 try:
                     datos = json.loads(linea)
                     
-                    # FILTRADO: Identificar si es un JSON de telemetría (sensores)
-                    # Comprobamos que contenga llaves críticas para no confundirlo con respuestas de comandos
-                    if "temp_comp" in datos and "co2_inf" in datos:
+                    # FILTRADO: El JSON es válido si trae datos ambientales O si trae datos de diagnóstico de errores
+                    if ("temp_comp" in datos) or ("err_max" in datos or "err_scd" in datos):
 
                         # Separación Modular de Datos
                         lecturas_sensores = {
