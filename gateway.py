@@ -2,6 +2,7 @@ import os
 import json
 import serial
 import time
+import threading
 from dotenv import load_dotenv
 from supabase import create_client, Client
 
@@ -22,6 +23,7 @@ print("⚡ Conexión inicializada con Supabase.")
 # Configura el puerto COM correcto (ej. 'COM4' en Windows o '/dev/ttyUSB0' en Linux/Mac)
 PUERTO_SERIAL = "COM4"  
 BAUD_RATE = 115200
+serial_lock = threading.Lock() # Evita que los dos hilos escriban/lean al mismo tiempo
 
 try:
     arduino = serial.Serial(port=PUERTO_SERIAL, baudrate=BAUD_RATE, timeout=1)
@@ -31,16 +33,109 @@ except Exception as e:
     print(f"❌ Error al abrir el puerto serial {PUERTO_SERIAL}: {e}")
     exit(1)
 
-# 4. Bucle principal de escucha y transmisión
+
+# 4. HILO DE BAJADA: Escuchar Cambios en Supabase (Polling Eficiente Asíncrono)
+def escuchar_controles_nube():
+    print("📡 Hilo de escucha de controles activado.")
+    # Registro del último estado conocido para solo enviar comandos si realmente cambian
+    ultimo_estado = {
+        "compresor": None,
+        "humidificador": None,
+        "vent_co2": None,
+        "vent_lateral": None,
+        "vent_superior": None,
+        "luz": None
+    }
+    
+    while True:
+        try:
+            # Consultar la fila única de control (ID=1)
+            res = supabase.table("controles").select("*").eq("id", 1).execute()
+            if res.data:
+                control = res.data[0]
+                
+                # Extraer valores de la nube
+                c_nube = 1 if control.get("set_compresor") else 0
+                h_nube = 1 if control.get("set_humidificador") else 0
+                v_co2_nube = control.get("set_vent_co2", 0)
+                v_lat_nube = control.get("set_vent_lateral", 0)
+                v_sup_nube = control.get("set_vent_superior", 0)
+                luz_nube = control.get("set_luz", 0)
+                
+                # --- PROCESAR COMPRESOR ---
+                if c_nube != ultimo_estado["compresor"]:
+                    comando = f"compresor:{c_nube}\n"
+                    with serial_lock:
+                        arduino.write(comando.encode())
+                    print(f"📤 Comando enviado a ESP32 -> {comando.strip()}")
+                    ultimo_estado["compresor"] = c_nube
+                    time.sleep(0.2) # Delay de cortesía serial
+                
+                # --- PROCESAR HUMIDIFICADOR ---
+                if h_nube != ultimo_estado["humidificador"]:
+                    comando = f"humidificador:{h_nube}\n"
+                    with serial_lock:
+                        arduino.write(comando.encode())
+                    print(f"📤 Comando enviado a ESP32 -> {comando.strip()}")
+                    ultimo_estado["humidificador"] = h_nube
+                    time.sleep(0.2)
+
+                # --- PROCESAR VENTILADOR CO2 ---
+                if v_co2_nube != ultimo_estado["vent_co2"]:
+                    comando = f"vent_co2:{v_co2_nube}\n"
+                    with serial_lock:
+                        arduino.write(comando.encode())
+                    print(f"📤 Comando enviado a ESP32 -> {comando.strip()}")
+                    ultimo_estado["vent_co2"] = v_co2_nube
+                    time.sleep(0.2)
+
+                # --- PROCESAR VENTILADOR LATERAL ---
+                if v_lat_nube != ultimo_estado["vent_lateral"]:
+                    comando = f"vent_lateral:{v_lat_nube}\n"
+                    with serial_lock:
+                        arduino.write(comando.encode())
+                    print(f"📤 Comando enviado a ESP32 -> {comando.strip()}")
+                    ultimo_estado["vent_lateral"] = v_lat_nube
+                    time.sleep(0.2)
+
+                # --- PROCESAR VENTILADOR SUPERIOR ---
+                if v_sup_nube != ultimo_estado["vent_superior"]:
+                    comando = f"vent_superior:{v_sup_nube}\n"
+                    with serial_lock:
+                        arduino.write(comando.encode())
+                    print(f"📤 Comando enviado a ESP32 -> {comando.strip()}")
+                    ultimo_estado["vent_superior"] = v_sup_nube
+                    time.sleep(0.2)
+
+                # --- PROCESAR LUZ ---
+                if luz_nube != ultimo_estado["luz"]:
+                    comando = f"luz:{luz_nube}\n"
+                    with serial_lock:
+                        arduino.write(comando.encode())
+                    print(f"📤 Comando enviado a ESP32 -> {comando.strip()}")
+                    ultimo_estado["luz"] = luz_nube
+                    time.sleep(0.2)
+
+        except Exception as e:
+            print(f"⚠️ Error en hilo de lectura de nube: {e}")
+            
+        time.sleep(1.5) # Muestreo de control cada 1.5 segundos para no saturar API
+
+# Iniciar el hilo de control de bajada en segundo plano
+hilo_control = threading.Thread(target=escuchar_controles_nube, daemon=True)
+hilo_control.start()
+
+# 5. HILO PRINCIPAL: Escucha Serial y Subida de Telemetría (Uplink)
 while True:
     try:
-        if arduino.in_waiting > 0:
-            # Leer línea entrante y decodificarla eliminando espacios en blanco
-            linea = arduino.readline().decode('utf-8', errors='ignore').strip()
-            
-            if not linea:
-                continue
-                
+        hay_datos = False
+        with serial_lock:
+            if arduino.in_waiting > 0:
+                # Leer línea entrante y decodificarla eliminando espacios en blanco
+                linea = arduino.readline().decode('utf-8', errors='ignore').strip()
+                hay_datos = True
+        
+        if hay_datos and linea:
             # Validar si el texto tiene estructura de JSON
             if linea.startswith("{") and linea.endswith("}"):
                 try:
