@@ -165,8 +165,12 @@ void setup() {
 }
 
 void loop() {
-  escucharComandosSerial(); //// ESCUCHA ACTIVA DE COMANDOS (Se ejecuta continuamente, sin esperas)
-  unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA TELEMETRÍA
+  escucharComandosSerial(); // ESCUCHA ACTIVA DE COMANDOS (Se ejecuta continuamente, sin esperas)
+  leersensores(); // Activa la funcion leer sensores
+}
+
+void leersensores(){
+unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA TELEMETRÍA
   if (tiempoActual - ultimoEnvio >= intervaloEnvio){
     ultimoEnvio = tiempoActual;
     // Banderas de error individuales (0 = Sin error, 1 = Error)
@@ -184,22 +188,26 @@ void loop() {
     }
 
     // ======== Monitoreo PT100 ========
-    thermo.clearFault();
     uint16_t rtd = thermo.readRTD();
     float ratio = (float)rtd / 32768.0;
     resistencia = ratio * RREF;
     temp_comp = thermo.temperature(RNOMINAL, RREF);
-    if (thermo.readFault() != 0)                    { err_max  = 1; }
+    if (thermo.readFault() != 0){
+      err_max = 1;
+      thermo.clearFault();
+      }else{err_max = 0;}
     // ======== SHT40 EXTERIOR ========
-    if (!sht1.readTemperatureHumidity(t1,h1))       { err_sht1 = 1; } 
+    if (!sht1.readTemperatureHumidity(t1,h1))       { err_sht1 = 1; }
+    else{err_sht1 = 0;} 
     // ======== SHT40 INTERIOR ========
     if (!sht2.readTemperatureHumidity(t2,h2))       { err_sht2 = 1; } 
+    else{err_sht2 = 0;}
     // ======== Puerta ======== Si digitalRead da LOW (0), la puerta está cerrada (toca GND).
     estadoPuerta = !digitalRead(Puerta); //Al poner el signo "!", estadoPuerta guardará un 1 si está abierta y 0 si está cerrada.
     // ======== LECTURA FIABLE PZEM-004T Conexión 100A ======== 
     // El transformador de corriente tiene 3 vueltas de cable.
 
-    if (isnan(pzem_voltaje) || isnan(pzem_corriente) || isnan(pzem_potencia) || isnan(pzem_energia)) {
+    if (isnan(pzem_voltaje) || isnan(pzem_corriente) || isnan(pzem_potencia) || isnan(pzem_energia) || isnan(pzem_frecuencia) || isnan(pzem_pf)) {
       err_pzem = 1;
       pzem_voltaje = 0.0;
       pzem_corriente = 0.0;
@@ -216,10 +224,10 @@ void loop() {
       pzem_frecuencia   = pzem.frequency();
       pzem_pf           = pzem.pf();
     }
-
-    crearYenviarJSON();
+    crearYenviarJSON(); // Activa la funcion para crear y enviar datos por puerto serial
   }
 }
+
 
 // Función para crear y enviar datos en Json
 void crearYenviarJSON() {
@@ -316,7 +324,9 @@ void escucharComandosSerial(){
           if(millis()-tiempo_ultimo_apagado >= tiempo_min_apagado){
             digitalWrite(compresor,HIGH);
             estado_compresor = 1;//digitalRead(compresor);
-          }else{ Serial.println(R"({"compresor_error":"bloqueo_anti_ciclo_corto"})");} 
+          }else{ 
+            Serial.printf(R"({"compresor_error":"bloqueo_anti_ciclo_corto","val":%d})" "\n", estado_compresor);
+            } 
         }else{ 
           if (estado_compresor == 1){
             digitalWrite(compresor,LOW);
