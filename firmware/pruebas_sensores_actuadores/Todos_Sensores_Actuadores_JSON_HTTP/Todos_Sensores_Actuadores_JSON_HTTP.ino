@@ -144,6 +144,7 @@ void setup() {
   SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CS);
   thermo.begin(MAX31865_2WIRE); // Configuración a 2 hilos
   thermo.clearFault();
+  delay(100); // Permite que los voltajes de referencia en el chip se estabilicen
   
  
   Serial.println();
@@ -352,14 +353,31 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
     }
 
     // ======== Monitoreo PT100 ========
+    thermo.clearFault();
+    delayMicroseconds(50); // Tiempo mínimo para que el chip procese el borrado
     uint16_t rtd = thermo.readRTD();
     float ratio = (float)rtd / 32768.0;
     resistencia = ratio * RREF;
-    temp_comp = thermo.temperature(RNOMINAL, RREF);
-    if (thermo.readFault() != 0){
-      err_max = 1;
+    uint8_t codigoFalla = thermo.readFault();
+    
+    if (codigoFalla != 0) {
+      // Si el chip reportó falla, intentamos recuperarlo inmediatamente
       thermo.clearFault();
-      }else{err_max = 0;}
+      delay(5); // Pausa real para que el ADC interno del MAX intente una nueva muestra sin ruido
+      
+      // Volvemos a leer el registro después del respiro físico
+      codigoFalla = thermo.readFault();
+    }
+
+    // 3. Evaluación final del estado real del hardware
+    if (codigoFalla != 0) {
+        err_max = 1; // La falla persistió incluso tras la limpieza y la pausa
+        // NOTA: No actualizamos temp_comp, protegiendo el sistema con el último valor seguro
+    } else {
+        err_max = 0;
+        // Solo calculamos la temperatura si el registro de fallas está completamente limpio
+        temp_comp = thermo.temperature(RNOMINAL, RREF);
+    }
     // ======== SHT40 EXTERIOR ========
     if (!sht1.readTemperatureHumidity(t1,h1))       { err_sht1 = 1; }
     else{err_sht1 = 0;} 
