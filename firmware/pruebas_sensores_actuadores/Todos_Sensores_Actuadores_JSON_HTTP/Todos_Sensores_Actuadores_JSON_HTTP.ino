@@ -11,6 +11,9 @@
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
 const char* password = "macp092021";
+const char* host     = "192.168.1.11"; // IP local de tu computadora de Python
+const uint16_t port  = 5005;          // Puerto arbitrario libre
+WiFiClient client;
 
 // Pines conexion UART PZEM004T Sensor de V/I/P/Energía/f/pf/
 #define RXD2 16
@@ -68,7 +71,7 @@ bool estado_compresor     = 0;
 const unsigned long tiempo_min_apagado = 180000; //Segundos. 3 minutos de protección
 unsigned long tiempo_ultimo_apagado = -tiempo_min_apagado;
 int compresor_disponible = 1; // 1 = Listo, 0 = Bloqueado
-long tiempo_restante_ciclo = 0; // Segundos que faltan para poder encender
+long tiempo_restante_ciclo = 0; // Segundos que faltan para poder encender compresor
 // ================= Configuración PWM =================
 // Pines fisicos GPIO 
 const int vent_lateral = 19;
@@ -97,19 +100,52 @@ int pwm_vent_co2      = 0;
 int pwm_luz           = 0;
 int pwm_aux           = 0;
 // ================= ================== ================
+JsonDocument doc; // O StaticJsonDocument / DynamicJsonDocument
 
 void setup() {
-
+  //Inicialización humidificador
+  pinMode(humidificador, OUTPUT);
+  digitalWrite(humidificador, estado_humidificador);
+  // 2. Inicializar comunicación serial
   Serial.begin(115200);
+  // ---------- Bus I2C principal ----------
+  Wire.begin(SDA_P, SCL_P,100000);  // Forzar bus externo a 100 kHz
+  Wire.setTimeOut(25);      // Tiempo de espera máximo en milisegundos
+   // ---------- Bus I2C secundario ----------
+  Wire1.begin(SDA_S, SCL_S,100000);      // Forzar bus externo a 100 kHz
+  // Conexión Wi-Fi
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWi-Fi Conectado.");
+  
   delay(1000);
+  //Inicialización de ventilador lateral
+  ledcAttachChannel(vent_lateral, frec_vent_lateral, PWM_BITS, CH_vent_lateral);
+  ledcWrite(vent_lateral, pwm_vent_lateral);
+  //Inicialización de ventilador superior
+  ledcAttachChannel(vent_superior, frec_vent_superior, PWM_BITS, CH_vent_superior);
+  ledcWrite(vent_superior, pwm_vent_superior);
+  //Inicialización de ventilador co2
+  ledcAttachChannel(vent_co2, frec_vent_co2, PWM_BITS, CH_vent_co2);
+  ledcWrite(vent_co2, pwm_vent_co2);
+  //Inicializacion Luz
+  ledcAttachChannel(luz, frec_luz, PWM_BITS, CH_luz);
+  ledcWrite(luz, pwm_luz);
+  //Inicializacion auxiliar
+  ledcAttachChannel(aux, frec_aux, PWM_BITS, CH_aux);
+  ledcWrite(aux, pwm_aux);
+  //Inicialización Compresor
+  pinMode(compresor, OUTPUT);
+  digitalWrite(compresor, estado_compresor);
   // ---------- SPI ----------
   SPI.begin(PIN_SCK, PIN_MISO, PIN_MOSI, PIN_CS);
   thermo.begin(MAX31865_2WIRE); // Configuración a 2 hilos
   thermo.clearFault();
-  // ---------- Bus I2C principal ----------
-  Wire.begin(SDA_P, SCL_P);
-  // ---------- Bus I2C secundario ----------
-  Wire1.begin(SDA_S, SCL_S);
+  
+ 
   Serial.println();
   Serial.println("Iniciando sensores...");
 
@@ -143,27 +179,6 @@ void setup() {
   //y empieza a escuchar y transmitir a una velocidad de 9600 baudios usando
   // el formato estándar de 8 bits de datos, sin paridad y con 1 bit de parada".
   PZEMSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
-  //Inicialización de ventilador lateral
-  ledcAttachChannel(vent_lateral, frec_vent_lateral, PWM_BITS, CH_vent_lateral);
-  ledcWrite(vent_lateral, pwm_vent_lateral);
-  //Inicialización de ventilador superior
-  ledcAttachChannel(vent_superior, frec_vent_superior, PWM_BITS, CH_vent_superior);
-  ledcWrite(vent_superior, pwm_vent_superior);
-  //Inicialización de ventilador co2
-  ledcAttachChannel(vent_co2, frec_vent_co2, PWM_BITS, CH_vent_co2);
-  ledcWrite(vent_co2, pwm_vent_co2);
-  //Inicializacion Luz
-  ledcAttachChannel(luz, frec_luz, PWM_BITS, CH_luz);
-  ledcWrite(luz, pwm_luz);
-  //Inicializacion auxiliar
-  ledcAttachChannel(aux, frec_aux, PWM_BITS, CH_aux);
-  ledcWrite(aux, pwm_aux);
-  //Inicialización humidificador
-  pinMode(humidificador, OUTPUT);
-  digitalWrite(humidificador, estado_humidificador);
-  //Inicialización Compresor
-  pinMode(compresor, OUTPUT);
-  digitalWrite(compresor, estado_compresor);
 }
 
 void actualizarCicloCompresor() {
@@ -186,10 +201,136 @@ void actualizarCicloCompresor() {
   }
 }
 
-void loop() {
-  actualizarCicloCompresor();
-  escucharComandosSerial(); // ESCUCHA ACTIVA DE COMANDOS (Se ejecuta continuamente, sin esperas)
-  leersensores(); // Activa la funcion leer sensores
+// Función para crear y enviar datos en Json
+void crearYenviarJSON() {
+  JsonDocument doc;
+  // Registro de errores de todos los sensores
+  doc["err_max"]  = err_max;
+  doc["err_sht1"] = err_sht1; //Exterior
+  doc["err_sht2"] = err_sht2; //Interior
+  doc["err_scd"]  = err_scd;
+  doc["err_pzem"] = err_pzem;
+  // Telemetría Sensores
+  doc["resistencia"]  = resistencia;
+  doc["temp_comp"]    = temp_comp;
+  doc["temp_ext"]     = t1;
+  doc["hum_ext"]      = h1;
+  doc["temp_int_sup"] = t2;
+  doc["hum_int_sup"]  = h2;
+  doc["co2_inf"]      = co2;
+  doc["temp_int_inf"] = t_inf;
+  doc["hum_int_inf"]  = h_inf;
+  doc["puerta"]       = estadoPuerta;
+  // Telemetría Consumo
+  doc["voltaje"]          = pzem_voltaje;     // V
+  doc["corriente_neta"]   = pzem_corriente;   // A (ya calculada la división por 3)
+  doc["potencia_w"]       = pzem_potencia;    // W (consumo instantáneo real)
+  doc["energia_kwh"]      = pzem_energia;     // kWh (el acumulador de energia)
+  doc["frecuencia_hz"]    = pzem_frecuencia;  // Hz
+  doc["factor_potencia"]  = pzem_pf;          // FP
+  // Variables de estado de actuadores
+  doc["vent_lateral"]     = pwm_vent_lateral;   // Estado ventilador lateral
+  doc["vent_superior"]    = pwm_vent_superior;  // Estado ventilador lateral
+  doc["vent_co2"]         = pwm_vent_co2;       //Estado ventilador co2
+  doc["luz"]              = pwm_luz;            // Estado iluminación
+  doc["pwm_auxiliar"]     = pwm_aux;            // Estado PWM Auxiliar
+  doc["humidificador"]    = estado_humidificador;
+  doc["compresor"]        = estado_compresor;
+  doc["compresor_disponible"] = compresor_disponible;
+  doc["tiempo_ciclo_compresor"] = tiempo_restante_ciclo;
+  if (client.connected()) {
+    serializeJson(doc, client); // Envía el JSON directamente por Wi-Fi
+    client.println();           // Envía un salto de línea indispensable para que Python sepa dónde termina el JSON
+  }
+  client.println();
+}
+
+void escucharComandosWifi(){
+  if(client.available()>0){ //// Verificamos si hay datos entrantes desde Python
+    String comando = client.readStringUntil('\n');
+    comando.trim(); // Limpia espacios en blanco o caracteres ocultos
+    if(comando == "RESET_ENERGY"){  // --- ACCIÓN: RESET DE ENERGÍA ---
+      pzem.resetEnergy();
+      client.println("{\"pzem_cmd\":\"reset_ok\"}"); // Enviamos una confirmación en formato JSON para que el dashboard sepa que se ejecutó
+    }
+    if (comando.startsWith("vent_lateral:")){
+      pwm_vent_lateral = constrain(comando.substring(13).toInt(),0,255);
+      ledcWrite(vent_lateral,pwm_vent_lateral);
+      client.printf("{\"vent_lateral_comando\":\"set_ok\",\"val\":%d}\n", pwm_vent_lateral);
+    }
+    if (comando.startsWith("vent_superior:")){
+      pwm_vent_superior = constrain(comando.substring(14).toInt(),0,255);
+      ledcWrite(vent_superior,pwm_vent_superior);
+      client.printf("{\"vent_superior_comando\":\"set_ok\",\"val\":%d}\n", pwm_vent_superior);
+    }
+    if (comando.startsWith("vent_co2:")){
+      pwm_vent_co2 = constrain(comando.substring(9).toInt(),0,255);
+      ledcWrite(vent_co2,pwm_vent_co2);
+      client.printf("{\"vent_co2_comando\":\"set_ok\",\"val\":%d}\n", pwm_vent_co2);
+    }
+    if (comando.startsWith("luz:")){
+      pwm_luz = constrain(comando.substring(4).toInt(),0,255);
+      ledcWrite(luz,pwm_luz);
+      client.printf("{\"luz_comando\":\"set_ok\",\"val\":%d}\n", pwm_luz);
+    }
+    if (comando.startsWith("aux:")){
+      pwm_aux = constrain(comando.substring(4).toInt(),0,255);
+      ledcWrite(aux,pwm_aux);
+      client.printf("{\"aux_comando\":\"set_ok\",\"val\":%d}\n", pwm_aux);
+    }
+    if(comando.startsWith("humidificador:")){
+      int comando_recibido = comando.substring(14).toInt(); 
+        if (comando_recibido == 0 || comando_recibido == 1){
+          if (comando_recibido == 1){
+            digitalWrite(humidificador,HIGH);
+            estado_humidificador = digitalRead(humidificador);
+          }else{
+            digitalWrite(humidificador,LOW);
+            estado_humidificador = digitalRead(humidificador);
+          } 
+          client.printf("{\"humificador_comando\":\"set_ok\",\"val\":%d}",estado_humidificador);
+        }else{
+          client.println("{\"humidificador_error\":\"dato_invalido\"}");
+        }
+    }
+    if(comando.startsWith("compresor:")){
+      int comando_recibido = comando.substring(10).toInt(); //Extraer y validar el dato entrante
+      if (comando_recibido == 0 || comando_recibido == 1){ //Filtrado estricto: Si no es 0 ni 1, ignoramos por completo el comando
+        if (comando_recibido == 1){
+          unsigned long tiempo_transcurrido = millis() - tiempo_ultimo_apagado;
+          if(tiempo_transcurrido >= tiempo_min_apagado){
+            digitalWrite(compresor,HIGH);
+            estado_compresor = 1;//digitalRead(compresor);
+            //compresor_disponible = 1;
+            //tiempo_restante_ciclo = 0;
+            client.printf(R"({"compresor_comando":"set_ok","val":%d})" "\n",estado_compresor);
+          }else{ 
+            compresor_disponible = 0;
+            tiempo_restante_ciclo = (tiempo_min_apagado - tiempo_transcurrido)/1000; // Si está bloqueado, calculamos cuánto le falta en segundos
+            client.printf(R"({"compresor_error":"bloqueo_anti_ciclo_corto","val":%d})" "\n", estado_compresor); // Enviamos el estado de error
+          } 
+        }else{ // --- PROCESO DE APAGADO ---
+          if (estado_compresor == 1){
+            digitalWrite(compresor,LOW);
+            estado_compresor = 0;//digitalRead(compresor); 
+            tiempo_ultimo_apagado = millis(); // Aquí arranca el reloj de seguridad
+            //compresor_disponible = 0; // Al apagar, inmediatamente pasa no disponible
+            //tiempo_restante_ciclo = tiempo_min_apagado/1000; // Carga el tiempo total de espera en segundos
+          }else{
+            digitalWrite(compresor,LOW); // Asegura estado por si acaso
+            //unsigned long tiempo_transcurrido = millis() - tiempo_ultimo_apagado;
+            //if (tiempo_transcurrido >= tiempo_min_apagado){
+            //  compresor_disponible = 1;
+            //  tiempo_restante_ciclo = 0;
+            }//else{
+             // compresor_disponible = 0;
+             // tiempo_restante_ciclo = (tiempo_min_apagado - tiempo_transcurrido)/1000; 
+            //}
+        }
+          client.printf(R"({"compresor_comando":"set_ok","val":%d,"compresor_disponible":%d,"tiempo_ciclo_compresor":%ld})" "\n", estado_compresor, compresor_disponible, tiempo_restante_ciclo);
+      }
+    }else{client.println(R"({"compresor_error":"dato_invalido"})");}
+  }
 }
 
 void leersensores(){
@@ -247,138 +388,33 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
       pzem_frecuencia   = pzem.frequency();
       pzem_pf           = pzem.pf();
     }
-    crearYenviarJSON(); // Activa la funcion para crear y enviar datos por puerto serial
   }
 }
 
-
-// Función para crear y enviar datos en Json
-void crearYenviarJSON() {
-  JsonDocument doc;
-  // Registro de errores de todos los sensores
-  doc["err_max"]  = err_max;
-  doc["err_sht1"] = err_sht1; //Exterior
-  doc["err_sht2"] = err_sht2; //Interior
-  doc["err_scd"]  = err_scd;
-  doc["err_pzem"] = err_pzem;
-  // Telemetría Sensores
-  doc["resistencia"]  = resistencia;
-  doc["temp_comp"]    = temp_comp;
-  doc["temp_ext"]     = t1;
-  doc["hum_ext"]      = h1;
-  doc["temp_int_sup"] = t2;
-  doc["hum_int_sup"]  = h2;
-  doc["co2_inf"]      = co2;
-  doc["temp_int_inf"] = t_inf;
-  doc["hum_int_inf"]  = h_inf;
-  doc["puerta"]       = estadoPuerta;
-  // Telemetría Consumo
-  doc["voltaje"]          = pzem_voltaje;     // V
-  doc["corriente_neta"]   = pzem_corriente;   // A (ya calculada la división por 3)
-  doc["potencia_w"]       = pzem_potencia;    // W (consumo instantáneo real)
-  doc["energia_kwh"]      = pzem_energia;     // kWh (el acumulador de energia)
-  doc["frecuencia_hz"]    = pzem_frecuencia;  // Hz
-  doc["factor_potencia"]  = pzem_pf;          // FP
-  // Variables de estado de actuadores
-  doc["vent_lateral"]     = pwm_vent_lateral;   // Estado ventilador lateral
-  doc["vent_superior"]    = pwm_vent_superior;  // Estado ventilador lateral
-  doc["vent_co2"]         = pwm_vent_co2;       //Estado ventilador co2
-  doc["luz"]              = pwm_luz;            // Estado iluminación
-  doc["pwm_auxiliar"]     = pwm_aux;            // Estado PWM Auxiliar
-  doc["humidificador"]    = estado_humidificador;
-  doc["compresor"]        = estado_compresor;
-  doc["compresor_disponible"] = compresor_disponible;
-  doc["tiempo_ciclo_compresor"] = tiempo_restante_ciclo;
-
-  serializeJson(doc, Serial);
-  Serial.println();
-}
-
-void escucharComandosSerial(){
-  if(Serial.available()>0){ //// Verificamos si hay datos entrantes desde Python
-    String comando = Serial.readStringUntil('\n');
-    comando.trim(); // Limpia espacios en blanco o caracteres ocultos
-    if(comando == "RESET_ENERGY"){  // --- ACCIÓN: RESET DE ENERGÍA ---
-      pzem.resetEnergy();
-      Serial.println("{\"pzem_cmd\":\"reset_ok\"}"); // Enviamos una confirmación en formato JSON para que el dashboard sepa que se ejecutó
+void loop() {
+  // Mantener o reconectar la conexión con Python
+  // Solo envia datos si hay comunicación
+  if (!client.connected()) {
+    Serial.println("Intentando conectar al servidor Python...");
+    if (client.connect(host, port)) {
+      Serial.println("Conectado a Python vía Wi-Fi!");
+    } else {
+      Serial.println("Fallo en la conexión. Reintentando en 5s...");
+      delay(5000);
+      //return; // Se usa para volver a iniciar el loop
     }
-    if (comando.startsWith("vent_lateral:")){
-      pwm_vent_lateral = constrain(comando.substring(13).toInt(),0,255);
-      ledcWrite(vent_lateral,pwm_vent_lateral);
-      Serial.printf("{\"vent_lateral_comando\":\"set_ok\",\"val\":%d}\n", pwm_vent_lateral);
-    }
-    if (comando.startsWith("vent_superior:")){
-      pwm_vent_superior = constrain(comando.substring(14).toInt(),0,255);
-      ledcWrite(vent_superior,pwm_vent_superior);
-      Serial.printf("{\"vent_superior_comando\":\"set_ok\",\"val\":%d}\n", pwm_vent_superior);
-    }
-    if (comando.startsWith("vent_co2:")){
-      pwm_vent_co2 = constrain(comando.substring(9).toInt(),0,255);
-      ledcWrite(vent_co2,pwm_vent_co2);
-      Serial.printf("{\"vent_co2_comando\":\"set_ok\",\"val\":%d}\n", pwm_vent_co2);
-    }
-    if (comando.startsWith("luz:")){
-      pwm_luz = constrain(comando.substring(4).toInt(),0,255);
-      ledcWrite(luz,pwm_luz);
-      Serial.printf("{\"luz_comando\":\"set_ok\",\"val\":%d}\n", pwm_luz);
-    }
-    if (comando.startsWith("aux:")){
-      pwm_aux = constrain(comando.substring(4).toInt(),0,255);
-      ledcWrite(aux,pwm_aux);
-      Serial.printf("{\"aux_comando\":\"set_ok\",\"val\":%d}\n", pwm_aux);
-    }
-    if(comando.startsWith("humidificador:")){
-      int comando_recibido = comando.substring(14).toInt(); 
-        if (comando_recibido == 0 || comando_recibido == 1){
-          if (comando_recibido == 1){
-            digitalWrite(humidificador,HIGH);
-            estado_humidificador = digitalRead(humidificador);
-          }else{
-            digitalWrite(humidificador,LOW);
-            estado_humidificador = digitalRead(humidificador);
-          } 
-          Serial.printf("{\"humificador_comando\":\"set_ok\",\"val\":%d}",estado_humidificador);
-        }else{
-          Serial.println("{\"humidificador_error\":\"dato_invalido\"}");
-        }
-    }
-    if(comando.startsWith("compresor:")){
-      int comando_recibido = comando.substring(10).toInt(); //Extraer y validar el dato entrante
-      if (comando_recibido == 0 || comando_recibido == 1){ //Filtrado estricto: Si no es 0 ni 1, ignoramos por completo el comando
-        if (comando_recibido == 1){
-          unsigned long tiempo_transcurrido = millis() - tiempo_ultimo_apagado;
-          if(tiempo_transcurrido >= tiempo_min_apagado){
-            digitalWrite(compresor,HIGH);
-            estado_compresor = 1;//digitalRead(compresor);
-            //compresor_disponible = 1;
-            //tiempo_restante_ciclo = 0;
-            Serial.printf(R"({"compresor_comando":"set_ok","val":%d})" "\n",estado_compresor);
-          }else{ 
-            compresor_disponible = 0;
-            tiempo_restante_ciclo = (tiempo_min_apagado - tiempo_transcurrido)/1000; // Si está bloqueado, calculamos cuánto le falta en segundos
-            Serial.printf(R"({"compresor_error":"bloqueo_anti_ciclo_corto","val":%d})" "\n", estado_compresor); // Enviamos el estado de error
-          } 
-        }else{ // --- PROCESO DE APAGADO ---
-          if (estado_compresor == 1){
-            digitalWrite(compresor,LOW);
-            estado_compresor = 0;//digitalRead(compresor); 
-            tiempo_ultimo_apagado = millis(); // Aquí arranca el reloj de seguridad
-            //compresor_disponible = 0; // Al apagar, inmediatamente pasa no disponible
-            //tiempo_restante_ciclo = tiempo_min_apagado/1000; // Carga el tiempo total de espera en segundos
-          }else{
-            digitalWrite(compresor,LOW); // Asegura estado por si acaso
-            //unsigned long tiempo_transcurrido = millis() - tiempo_ultimo_apagado;
-            //if (tiempo_transcurrido >= tiempo_min_apagado){
-            //  compresor_disponible = 1;
-            //  tiempo_restante_ciclo = 0;
-            }//else{
-             // compresor_disponible = 0;
-             // tiempo_restante_ciclo = (tiempo_min_apagado - tiempo_transcurrido)/1000; 
-            //}
-        }
-          Serial.printf(R"({"compresor_comando":"set_ok","val":%d,"compresor_disponible":%d,"tiempo_ciclo_compresor":%ld})" "\n", estado_compresor, compresor_disponible, tiempo_restante_ciclo);
-      }
-    }else{Serial.println(R"({"compresor_error":"dato_invalido"})");}
   }
+  // 2. Adquisición de Datos (Solo lee el hardware)
+  leersensores(); 
+  // 3. Comunicación (Toma los datos leídos y los escupe al WiFi)
+  crearYenviarJSON(); 
+  // 4. Procesamiento de comandos externos
+  escucharComandosWifi(); // ESCUCHA ACTIVA DE COMANDOS (Se ejecuta continuamente, sin esperas)
+  // 5. Gestión de seguridad ciclo de encendido de compresor
+  actualizarCicloCompresor();
+
 }
+
+
+
 

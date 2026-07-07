@@ -5,6 +5,14 @@ import time
 import threading
 from dotenv import load_dotenv
 from supabase import create_client, Client
+import socket
+
+# Configuración de Red local basada en tu ipconfig
+TCP_IP = '0.0.0.0'  # Escucha en todas las redes de la PC
+TCP_PORT = 5005
+BUFFER_SIZE = 4096  # Búfer más grande para prevenir cortes en el JSON
+
+conn = None
 
 # 1. Cargar variables de entorno ocultas
 load_dotenv()
