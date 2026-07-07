@@ -140,10 +140,8 @@ while True:
             if linea.startswith("{") and linea.endswith("}"):
                 try:
                     datos = json.loads(linea)
-                    
-                    # FILTRADO: El JSON es válido si trae datos ambientales O si trae datos de diagnóstico de errores
-                    if ("temp_comp" in datos) or ("err_max" in datos or "err_scd" in datos):
-
+                    # FILTRADO: El JSON es válido si trae datos sensores
+                    if("temp_comp" in datos):
                         # Separación Modular de Datos
                         lecturas_sensores = {
                             "temp_comp": datos.get("temp_comp"),
@@ -155,7 +153,8 @@ while True:
                             "hum_int_inf": datos.get("hum_int_inf"),
                             "co2_inf": datos.get("co2_inf")
                         }
-
+                    # FILTRADO: El JSON es válido si trae datos energía
+                    if("voltaje" in datos):
                         monitoreo_energetico = {
                             "voltaje": datos.get("voltaje"),
                             "corriente_neta": datos.get("corriente_neta"),
@@ -165,7 +164,8 @@ while True:
                             "factor_potencia": datos.get("factor_potencia"),
                             "resistencia": datos.get("resistencia")
                         }
-
+                    # FILTRADO: El JSON es válido si trae datos de estado
+                    if("err_max" in datos):
                         datos_estado = {
                             "err_max": datos.get("err_max"),
                             "err_sht1": datos.get("err_sht1"),
@@ -179,7 +179,8 @@ while True:
                             "pwm_auxiliar": datos.get("pwm_auxiliar"),
                             "humidificador": datos.get("humidificador"),
                             "compresor": datos.get("compresor"),
-                            "puerta": datos.get("puerta")
+                            "puerta": datos.get("puerta"),
+                            "compresor_disponible": datos.get("compresor_disponible")
                         }
                     
                         # Inserciones independientes en Supabase
@@ -193,6 +194,7 @@ while True:
                         comp_status = "ON" if datos_estado["compresor"] else "OFF"
                         hum_status = "ON" if datos_estado["humidificador"] else "OFF"
                         puerta_status = "ABIERTA" if datos_estado["puerta"] == 1 else "CERRADA"
+                        ciclo_comp_status = "🟢 LISTO" if datos_estado["compresor_disponible"] else f"🔴 PROTEGIDO ({datos.get('tiempo_ciclo_compresor', 0)}s)"
 
                         # Formatear estados de error (0 = OK, 1 = FALLA)
                         err_m = "❌ FAIL" if datos_estado["err_max"] else "OK"
@@ -212,7 +214,7 @@ while True:
                         print("-"*130)
                         print(f"⚙️  ACTUADORES:  Compresor: [{comp_status}] | Humidificador: [{hum_status}] | Vent_CO2: {datos_estado['vent_co2']} PWM | Vent_Superior: {datos_estado['vent_superior']} PWM | Vent_lateral: {datos_estado['vent_lateral']} PWM |Luz: {datos_estado['luz']} PWM")
                         print("-"*130)
-                        print(f"🚨 DIAGNOS:  MAX: {err_m} | SHT40_Ext: {err_s1} | SHT40_Int: {err_s2} | SCD40: {err_sc} | PZEM: {err_pz} | 🚪 Puerta: {puerta_status}")
+                        print(f"🚨 DIAGNOS:  MAX: {err_m} | SHT40_Ext: {err_s1} | SHT40_Int: {err_s2} | SCD40: {err_sc} | PZEM: {err_pz} | 🚪 Puerta: {puerta_status} | Ciclo_compresor: {ciclo_comp_status}")
                         print("="*130)
             
                 except json.JSONDecodeError:

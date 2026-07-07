@@ -67,6 +67,8 @@ const int compresor       = 33;
 bool estado_compresor     = 0;
 const unsigned long tiempo_min_apagado = 180000; //Segundos. 3 minutos de protección
 unsigned long tiempo_ultimo_apagado = -tiempo_min_apagado;
+int compresor_disponible = 1; // 1 = Listo, 0 = Bloqueado
+long tiempo_restante_ciclo = 0; // Segundos que faltan para poder encender
 // ================= Configuración PWM =================
 // Pines fisicos GPIO 
 const int vent_lateral = 19;
@@ -164,7 +166,28 @@ void setup() {
   digitalWrite(compresor, estado_compresor);
 }
 
+void actualizarCicloCompresor() {
+  // Si el compresor está encendido, siempre está disponible=1 y timer=0
+  if (estado_compresor == 1) {
+    compresor_disponible = 1;
+    tiempo_restante_ciclo = 0;
+  } 
+  // Si está apagado, calculamos constantemente cuánto tiempo le queda
+  else {
+    unsigned long tiempo_transcurrido = millis() - tiempo_ultimo_apagado;
+    
+    if (tiempo_transcurrido >= tiempo_min_apagado) {
+      compresor_disponible = 1; // ¡Ya pasaron los 3 min! Se libera automáticamente
+      tiempo_restante_ciclo = 0;
+    } else {
+      compresor_disponible = 0; // Sigue bloqueado
+      tiempo_restante_ciclo = (tiempo_min_apagado - tiempo_transcurrido) / 1000;
+    }
+  }
+}
+
 void loop() {
+  actualizarCicloCompresor();
   escucharComandosSerial(); // ESCUCHA ACTIVA DE COMANDOS (Se ejecuta continuamente, sin esperas)
   leersensores(); // Activa la funcion leer sensores
 }
@@ -264,6 +287,8 @@ void crearYenviarJSON() {
   doc["pwm_auxiliar"]     = pwm_aux;            // Estado PWM Auxiliar
   doc["humidificador"]    = estado_humidificador;
   doc["compresor"]        = estado_compresor;
+  doc["compresor_disponible"] = compresor_disponible;
+  doc["tiempo_ciclo_compresor"] = tiempo_restante_ciclo;
 
   serializeJson(doc, Serial);
   Serial.println();
@@ -321,26 +346,39 @@ void escucharComandosSerial(){
       int comando_recibido = comando.substring(10).toInt(); //Extraer y validar el dato entrante
       if (comando_recibido == 0 || comando_recibido == 1){ //Filtrado estricto: Si no es 0 ni 1, ignoramos por completo el comando
         if (comando_recibido == 1){
-          if(millis()-tiempo_ultimo_apagado >= tiempo_min_apagado){
+          unsigned long tiempo_transcurrido = millis() - tiempo_ultimo_apagado;
+          if(tiempo_transcurrido >= tiempo_min_apagado){
             digitalWrite(compresor,HIGH);
             estado_compresor = 1;//digitalRead(compresor);
+            //compresor_disponible = 1;
+            //tiempo_restante_ciclo = 0;
+            Serial.printf(R"({"compresor_comando":"set_ok","val":%d})" "\n",estado_compresor);
           }else{ 
-            Serial.printf(R"({"compresor_error":"bloqueo_anti_ciclo_corto","val":%d})" "\n", estado_compresor);
-            } 
-        }else{ 
+            compresor_disponible = 0;
+            tiempo_restante_ciclo = (tiempo_min_apagado - tiempo_transcurrido)/1000; // Si está bloqueado, calculamos cuánto le falta en segundos
+            Serial.printf(R"({"compresor_error":"bloqueo_anti_ciclo_corto","val":%d})" "\n", estado_compresor); // Enviamos el estado de error
+          } 
+        }else{ // --- PROCESO DE APAGADO ---
           if (estado_compresor == 1){
             digitalWrite(compresor,LOW);
             estado_compresor = 0;//digitalRead(compresor); 
             tiempo_ultimo_apagado = millis(); // Aquí arranca el reloj de seguridad
+            //compresor_disponible = 0; // Al apagar, inmediatamente pasa no disponible
+            //tiempo_restante_ciclo = tiempo_min_apagado/1000; // Carga el tiempo total de espera en segundos
           }else{
             digitalWrite(compresor,LOW); // Asegura estado por si acaso
-          }
+            //unsigned long tiempo_transcurrido = millis() - tiempo_ultimo_apagado;
+            //if (tiempo_transcurrido >= tiempo_min_apagado){
+            //  compresor_disponible = 1;
+            //  tiempo_restante_ciclo = 0;
+            }//else{
+             // compresor_disponible = 0;
+             // tiempo_restante_ciclo = (tiempo_min_apagado - tiempo_transcurrido)/1000; 
+            //}
         }
-        Serial.printf(R"({"compresor_comando":"set_ok","val":%d})" "\n",estado_compresor);
+          Serial.printf(R"({"compresor_comando":"set_ok","val":%d,"compresor_disponible":%d,"tiempo_ciclo_compresor":%ld})" "\n", estado_compresor, compresor_disponible, tiempo_restante_ciclo);
       }
-       else{
-      Serial.println(R"({"compresor_error":"dato_invalido"})");
-      }
-    }
+    }else{Serial.println(R"({"compresor_error":"dato_invalido"})");}
   }
 }
+
