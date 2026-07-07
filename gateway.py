@@ -170,7 +170,7 @@ def escuchar_controles_nube():
                             print(f"❌ Error al enviar comando al ventilador por Wi-Fi: {e}")
                     else:
                         print("⚠️ No se pudo enviar comando: ESP32 desconectada por Wi-Fi.")
-                    time.sleep(0.2)
+                time.sleep(0.1)
 
         except Exception as e:
             print(f"⚠️ Error en hilo de lectura de nube: {e}")
@@ -180,6 +180,15 @@ def escuchar_controles_nube():
 # Iniciar el hilo de control de bajada en segundo plano
 hilo_control = threading.Thread(target=escuchar_controles_nube, daemon=True)
 hilo_control.start()
+
+def subir_a_supabase_background(lecturas, energia, estado):
+    """Función auxiliar que se ejecuta en su propio hilo para no congelar el Wi-Fi"""
+    try:
+        supabase.table("lecturas_sensores").insert(lecturas).execute()
+        supabase.table("monitoreo_energetico").insert(energia).execute()
+        supabase.table("estado_sistema").insert(estado).execute()
+    except Exception as e:
+        print(f"⚠️ Error al subir datos a Supabase (Segundo plano): {e}")
 
 # 5. HILO PRINCIPAL: Escucha Serial y Subida de Telemetría (Uplink)
 def escuchar_esp32_wifi():
@@ -252,10 +261,15 @@ def escuchar_esp32_wifi():
                                         "compresor_disponible": datos.get("compresor_disponible")
                                     }
                                 
-                                    # Inserciones independientes en Supabase
-                                    supabase.table("lecturas_sensores").insert(lecturas_sensores).execute()
-                                    supabase.table("monitoreo_energetico").insert(monitoreo_energetico).execute()
-                                    supabase.table("estado_sistema").insert(datos_estado).execute()
+                                    # ==================================================================
+                                    # 🔥 OPTIMIZACIÓN CRÍTICA: Lanzar la subida en un hilo independiente
+                                    # ==================================================================
+                                    h_subida = threading.Thread(
+                                        target=subir_a_supabase_background, 
+                                        args=(lecturas_sensores, monitoreo_energetico, datos_estado),
+                                        daemon=True
+                                    )
+                                    h_subida.start()
                                     
                                     hora_actual = time.strftime('%H:%M:%S')
                                     

@@ -388,6 +388,7 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
       pzem_frecuencia   = pzem.frequency();
       pzem_pf           = pzem.pf();
     }
+    crearYenviarJSON();
   }
 }
 
@@ -406,8 +407,7 @@ void loop() {
   }
   // 2. Adquisición de Datos (Solo lee el hardware)
   leersensores(); 
-  // 3. Comunicación (Toma los datos leídos y los escupe al WiFi)
-  crearYenviarJSON(); 
+
   // 4. Procesamiento de comandos externos
   escucharComandosWifi(); // ESCUCHA ACTIVA DE COMANDOS (Se ejecuta continuamente, sin esperas)
   // 5. Gestión de seguridad ciclo de encendido de compresor
