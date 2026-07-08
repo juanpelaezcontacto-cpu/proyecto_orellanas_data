@@ -94,12 +94,14 @@ async def recibir_datos(data: PaqueteRafaga):
         lista_estado = []
 
         total_lecturas = len(data.historial_lecturas)
-
+        # Obtener la hora actual en UTC con zona horaria explícita
+        ahora_utc = datetime.now(ZoneInfo("UTC"))
+        
         # Iteramos sobre cada muestra tomada en el tiempo (reconstrucción del índice temporal)
         for i, lectura in enumerate(data.historial_lecturas):
             # Calculamos los segundos hacia atrás con base en muestras tomadas cada 5 segundos
             segundos_atras = (total_lecturas - 1 - i) * 5
-            marca_tiempo = (ahora - timedelta(seconds=segundos_atras)).isoformat()
+            marca_tiempo = (ahora_utc - timedelta(seconds=segundos_atras)).isoformat()
             
             # 1. Preparar datos para tabla 'lecturas_sensores'
             lista_sensores.append({
