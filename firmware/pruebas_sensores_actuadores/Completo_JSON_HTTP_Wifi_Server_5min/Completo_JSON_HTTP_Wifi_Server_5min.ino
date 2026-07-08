@@ -14,7 +14,7 @@ const char* password = "macp092021";
 //const char* host     = "192.168.1.11"; // IP local de tu computadora de Python
 // La URL de tu servidor FastAPI (Local en fase de pruebas)
 // Reemplaza por la IP de tu PC. Cuando lo subas a la nube, será "https://tu-app.render.com/telemetria"
-const char* serverName = "http://192.168.1.11:8000/telemetria";
+//const char* serverName = "http://192.168.1.11:8000/telemetria";
 //const uint16_t port  = 5005;          // Puerto arbitrario libre
 //WiFiClient client;
 
@@ -52,7 +52,6 @@ PZEM004Tv30 pzem(PZEMSerial, RXD2, TXD2);  //canal, receptor y transmisor
 // --- Configuración de Tiempos ---
 const unsigned long INTERVALO_MUESTREO = 5000;       // 5 segundos en ms
 const unsigned long INTERVALO_TRANSMISION = 300000;  // 5 minutos en ms (5 * 60 * 1000)
-
 unsigned long ultimoMuestreo = 0;
 unsigned long ultimaTransmision = 0;
 
@@ -63,23 +62,69 @@ int contadorLecturas = 0;
 //Variables Globales
 int err_max = 0, err_sht1 = 0, err_sht2 = 0, err_scd = 0, err_pzem = 0;
 
-struct RegistroSensor {
-  float resistencia = 0.0, temp_comp = 0.0;
-  float t1 = 0.0, h1 = 0.0;
-  float t2 = 0.0, h2 = 0.0;
-  uint16_t co2 = 0;
-  float t_inf = 0.0, h_inf = 0.0;
-  float pzem_voltaje = 0.0;
-  float pzem_corriente = 0.0;
-  float pzem_potencia = 0.0;
-  float pzem_energia = 0.0;
-  float pzem_frecuencia = 0.0;
-  float pzem_pf = 0.0;
-}
-// Creamos el arreglo en RAM para almacenar la ráfaga
-RegistroSensor bufferCultivo[MAX_LECTURAS];
+// Variables de Clima y Sensores
+float temp_comp = 0.0;
+float t1 = 0.0;          // SHT Exterior (Temperatura)
+float h1 = 0.0;          // SHT Exterior (Humedad)
+float t2 = 0.0;          // SHT Interior Superior (Temperatura)
+float h2 = 0.0;          // SHT Interior Superior (Humedad)
+float t_inf = 0.0;       // SCD40 o Inferior (Temperatura)
+float h_inf = 0.0;       // SCD40 o Inferior (Humedad)
+uint16_t co2 = 0;        // Nivel de CO2 (reemplaza o unifica con co2_inf)
+float resistencia = 0.0; // Resistencia PT100/Sensor
+int puerta = 0;          // Estado de la puerta (0 o 1)
 
-const char* serverName = "http://<TU_IP_O_URL_NUBE>:7860/telemetria";
+// Variables de Monitoreo Eléctrico (PZEM)
+float pzem_voltaje = 0.0;
+float pzem_corriente = 0.0;
+float pzem_potencia = 0.0;
+float pzem_energia = 0.0;
+float pzem_frecuencia = 0.0;
+float pzem_pf = 0.0;
+
+struct RegistroCompletoHistorial {
+    // Diagnóstico
+    int err_max;
+    int err_sht1;
+    int err_sht2;
+    int err_scd;
+    int err_pzem;
+
+    // Sensores Clima
+    float temp_comp;
+    float temp_ext;
+    float hum_ext;
+    float temp_int_sup;
+    float hum_int_sup;
+    float temp_int_inf;
+    float hum_int_inf;
+    int co2_inf;
+    float resistencia;
+    int puerta;
+
+    // Eléctrico
+    float voltaje;
+    float corriente_neta;
+    float potencia_w;
+    float energia_kwh;
+    float frecuencia_hz;
+    float factor_potencia;
+
+    // Actuadores (Salidas)
+    int vent_lateral;
+    int vent_superior;
+    int vent_co2;
+    int luz;
+    int pwm_auxiliar;
+    bool humidificador;
+    bool compresor;
+    bool compresor_disponible;
+    long tiempo_ciclo_compresor;
+}; 
+// EL BUFFER EN MEMORIA RAM ---
+RegistroCompletoHistorial bufferCultivo[MAX_LECTURAS];
+
+const char* serverName = "https://orellanas-backend-production.up.railway.app/telemetria";
 
 const int maxIntentos = 50; // 20 intentos para leer el SCD * 100ms = 2 segundos de tolerancia máxima
 
@@ -95,6 +140,7 @@ const unsigned long tiempo_min_apagado = 180000; //Segundos. 3 minutos de protec
 unsigned long tiempo_ultimo_apagado = -tiempo_min_apagado;
 int compresor_disponible = 1; // 1 = Listo, 0 = Bloqueado
 long tiempo_restante_ciclo = 0; // Segundos que faltan para poder encender compresor
+unsigned long tiempo_ciclo_compresor = 0; // O "long" si usas números con signo
 // ================= Configuración PWM =================
 // Pines fisicos GPIO 
 const int vent_lateral = 19;
@@ -121,7 +167,8 @@ int pwm_vent_lateral  = 0;
 int pwm_vent_superior = 0;
 int pwm_vent_co2      = 0;
 int pwm_luz           = 0;
-int pwm_aux           = 0;
+int pwm_aux         = 0;
+int pwm_auxiliar = 0;
 // ================= ================== ================
 JsonDocument doc; // O StaticJsonDocument / DynamicJsonDocument
 
@@ -304,148 +351,6 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
   }
 }
 
-void sincronizarConServidorWeb() {
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        
-        // 1. Inicializar la conexión hacia el endpoint de FastAPI
-        http.begin(serverName);
-        http.addHeader("Content-Type", "application/json");
-
-        // 2. Crear el JSON de telemetría (Usa los nombres exactos de tu class Telemetria)
-        // Ajusta el tamaño (StaticJsonDocument) según el número de variables
-        StaticJsonDocument<1024> docRequest;
-        
-        // Registro de errores
-        docRequest["err_max"]  = err_max;
-        docRequest["err_sht1"] = err_sht1;
-        docRequest["err_sht2"] = err_sht2;
-        docRequest["err_scd"]  = err_scd;
-        docRequest["err_pzem"] = err_pzem;
-
-        // Telemetría Sensores
-        docRequest["resistencia"]  = resistencia;
-        docRequest["temp_comp"]    = temp_comp;
-        docRequest["temp_ext"]     = t1;
-        docRequest["hum_ext"]      = h1;
-        docRequest["temp_int_sup"] = t2;
-        docRequest["hum_int_sup"]  = h2;
-        docRequest["co2_inf"]      = co2;
-        docRequest["temp_int_inf"] = t_inf;
-        docRequest["hum_int_inf"]  = h_inf;
-        docRequest["puerta"]       = estadoPuerta;
-
-        // Telemetría Consumo
-        docRequest["voltaje"]          = pzem_voltaje;
-        docRequest["corriente_neta"]   = pzem_corriente;
-        docRequest["potencia_w"]       = pzem_potencia;
-        docRequest["energia_kwh"]      = pzem_energia;
-        docRequest["frecuencia_hz"]    = pzem_frecuencia;
-        docRequest["factor_potencia"]  = pzem_pf;
-
-        // Variables de estado de actuadores
-        docRequest["vent_lateral"]   = pwm_vent_lateral;
-        docRequest["vent_superior"]  = pwm_vent_superior;
-        docRequest["vent_co2"]       = pwm_vent_co2;
-        docRequest["luz"]            = pwm_luz;
-        docRequest["pwm_auxiliar"]   = pwm_aux;
-        docRequest["humidificador"]  = estado_humidificador;
-        docRequest["compresor"]      = estado_compresor;
-        docRequest["compresor_disponible"] = estado_compresor; // O la lógica de disponibilidad que uses
-        docRequest["tiempo_ciclo_compresor"] = tiempo_restante_ciclo;
-
-        String requestBody;
-        serializeJson(docRequest, requestBody);
-
-        // 3. Enviar la petición POST con los datos
-        int httpResponseCode = http.POST(requestBody);
-
-        // 4. Procesar la respuesta del servidor
-        if (httpResponseCode == 201 || httpResponseCode == 200) {
-            String responseBody = http.getString();
-            
-            // Decodificar el JSON de respuesta que FastAPI envió con los comandos
-            StaticJsonDocument<512> docResponse;
-            DeserializationError error = deserializeJson(docResponse, responseBody);
-
-            if (!error) {
-                // Verificamos que el servidor confirme la sincronización
-                if (docResponse["status"] == "success") {                 
-                    // Extraer los valores en el mismo orden que los envía Python:
-                    // [compresor, humidificador, vent_co2, vent_lateral, vent_superior, luz]
-                    int set_compresor     = docResponse["set_compresor"];
-                    int set_humidificador  = docResponse["set_humidificador"];
-                    int set_vent_co2       = docResponse["set_vent_co2"];
-                    int set_vent_lateral   = docResponse["set_vent_lateral"];
-                    int set_vent_superior  = docResponse["set_vent_superior"];
-                    int set_luz            = docResponse["set_luz"];
-
-                    // =============================================================
-                    // AQUÍ APLICAS LOS CAMBIOS A TUS PINES / RELÉS O SEÑALES PWM
-                    // =============================================================
-                    // --- CONTROL DIGITAL ON/OFF ---
-                    
-                    // Compresor (Pin 33)
-                    if (set_compresor != estado_compresor) {
-                        digitalWrite(compresor, set_compresor);
-                        estado_compresor = set_compresor;
-                        Serial.print("➡️ Compresor cambiado a: "); Serial.println(estado_compresor);
-                    }
-                    
-                    // Humidificador (Pin 4)
-                    if (set_humidificador != estado_humidificador) {
-                        digitalWrite(humidificador, set_humidificador);
-                        estado_humidificador = set_humidificador;
-                        Serial.print("➡️ Humidificador cambiado a: "); Serial.println(estado_humidificador);
-                    }
-
-                    // --- CONTROL PWM VIA LEDC (Canales internos) ---
-                    
-                    // Ventilador CO2
-                    if (set_vent_co2 != pwm_vent_co2) {
-                        ledcWrite(vent_co2, set_vent_co2);
-                        pwm_vent_co2 = set_vent_co2;
-                        Serial.print("➡️ Ventilador CO2 cambiado a: "); Serial.println(pwm_vent_co2);
-                    }
-
-                    // Ventilador Lateral
-                    if (set_vent_lateral != pwm_vent_lateral) {
-                        ledcWrite(vent_lateral, set_vent_lateral);
-                        pwm_vent_lateral = set_vent_lateral;
-                        Serial.print("➡️ Ventilador lateral cambiado a: "); Serial.println(pwm_vent_lateral);
-                    }
-
-                    // Ventilador Superior
-                    if (set_vent_superior != pwm_vent_superior) {
-                        ledcWrite(vent_superior, set_vent_superior);
-                        pwm_vent_superior = set_vent_superior;
-                        Serial.print("➡️ Ventilador Superior cambiado a: "); Serial.println(pwm_vent_superior);
-                    }
-
-                    // Iluminación
-                    if (set_luz != pwm_luz) {
-                        ledcWrite(luz, set_luz);
-                        pwm_luz = set_luz;
-                        Serial.print("➡️ Luz cambiada a: "); Serial.println(pwm_luz);
-                    }
-                    Serial.println("🔄 Todos los actuadores sincronizados con la nube.");
-                }
-            } else {
-                Serial.print("⚠️ Error al decodificar comandos del servidor: ");
-                Serial.println(error.c_str());
-            }
-        } else {
-            Serial.print("❌ Error en la petición HTTP POST. Código: ");
-            Serial.println(httpResponseCode);
-        }
-
-        // 5. Liberar recursos de la conexión
-        http.end();
-    } else {
-        Serial.println("⚠️ Wi-Fi desconectado. No se puede sincronizar.");
-    }
-}
-
 void enviarRafagaANube() {
     HTTPClient http;
     http.begin(serverName);
@@ -453,73 +358,63 @@ void enviarRafagaANube() {
 
     // Asignamos tamaño al documento JSON dinámico. 
     // 60 lecturas con múltiples campos requieren un buffer JSON grande (~16 a 20 KB).
-    DynamicJsonDocument doc(24576); 
+    DynamicJsonDocument doc(32768); 
 
-    // 1. Campos globales del estado actual
-    doc["err_max"] = err_max;
-    doc["err_sht1"] = err_sht1;
-    doc["err_sht2"] = err_sht2;
-    doc["err_scd"] = err_scd;
-    doc["err_pzem"] = err_pzem;
-    doc["vent_lateral"] = vent_lateral;
-    doc["vent_superior"] = vent_superior;
-    doc["vent_co2"] = vent_co2;
-    doc["luz"] = luz;
-    doc["pwm_auxiliar"] = pwm_auxiliar;
-    doc["humidificador"] = humidificador;
-    doc["compresor"] = compresor;
-    doc["puerta"] = puerta;
-    doc["compresor_disponible"] = compresor_disponible;
-    doc["tiempo_ciclo_compresor"] = tiempo_ciclo_compresor;
-
-    // 2. Construir la lista "historial_lecturas"
     JsonArray historial = doc.createNestedArray("historial_lecturas");
     
     for (int i = 0; i < contadorLecturas; i++) {
         JsonObject obj = historial.createNestedObject();
-        obj["temp_comp"] = bufferCultivo[i].temp_comp;
-        obj["temp_ext"] = bufferCultivo[i].temp_ext;
-        obj["hum_ext"] = bufferCultivo[i].hum_ext;
-        obj["temp_int_sup"] = bufferCultivo[i].temp_int_sup;
-        obj["hum_int_sup"] = bufferCultivo[i].hum_int_sup;
-        obj["temp_int_inf"] = bufferCultivo[i].temp_int_inf;
-        obj["hum_int_inf"] = bufferCultivo[i].hum_int_inf;
-        obj["co2_inf"] = bufferCultivo[i].co2_inf;
         
-        obj["voltaje"] = bufferCultivo[i].pzem_voltaje;
-        obj["corriente_neta"] = bufferCultivo[i].pzem_corriente;
-        obj["potencia_w"] = bufferCultivo[i].pzem_potencia;
-        obj["energia_kwh"] = bufferCultivo[i].pzem_energia;
-        obj["frecuencia_hz"] = bufferCultivo[i].pzem_frecuencia;
-        obj["factor_potencia"] = bufferCultivo[i].pzem_pf;
+        obj["err_max"]  = bufferCultivo[i].err_max;
+        obj["err_sht1"] = bufferCultivo[i].err_sht1;
+        obj["err_sht2"] = bufferCultivo[i].err_sht2;
+        obj["err_scd"]  = bufferCultivo[i].err_scd;
+        obj["err_pzem"] = bufferCultivo[i].err_pzem;
+
+        obj["temp_comp"]   = bufferCultivo[i].temp_comp;
+        obj["temp_ext"]    = bufferCultivo[i].temp_ext;
+        obj["hum_ext"]     = bufferCultivo[i].hum_ext;
+        obj["temp_int_sup"] = bufferCultivo[i].temp_int_sup;
+        obj["hum_int_sup"]  = bufferCultivo[i].hum_int_sup;
+        obj["temp_int_inf"] = bufferCultivo[i].temp_int_inf;
+        obj["hum_int_inf"]  = bufferCultivo[i].hum_int_inf;
+        obj["co2_inf"]      = bufferCultivo[i].co2_inf;
+        obj["resistencia"]  = bufferCultivo[i].resistencia;
+        obj["puerta"]       = bufferCultivo[i].puerta;
+
+        obj["voltaje"]         = bufferCultivo[i].voltaje;
+        obj["corriente_neta"]  = bufferCultivo[i].corriente_neta;
+        obj["potencia_w"]      = bufferCultivo[i].potencia_w;
+        obj["energia_kwh"]     = bufferCultivo[i].energia_kwh;
+        obj["frecuencia_hz"]   = bufferCultivo[i].frecuencia_hz;
+        obj["factor_potencia"] = bufferCultivo[i].factor_potencia;
+
+        obj["vent_lateral"]   = bufferCultivo[i].vent_lateral;
+        obj["vent_superior"]  = bufferCultivo[i].vent_superior;
+        obj["vent_co2"]       = bufferCultivo[i].vent_co2;
+        obj["luz"]            = bufferCultivo[i].luz;
+        obj["pwm_auxiliar"]   = bufferCultivo[i].pwm_auxiliar;
+        obj["humidificador"]  = bufferCultivo[i].humidificador;
+        obj["compresor"]      = bufferCultivo[i].compresor;
+        obj["compresor_disponible"] = bufferCultivo[i].compresor_disponible;
+        obj["tiempo_ciclo_compresor"] = bufferCultivo[i].tiempo_ciclo_compresor;
     }
 
     String requestBody;
     serializeJson(doc, requestBody);
 
-    Serial.println("🚀 Enviando ráfaga de 5 minutos a FastAPI...");
+    Serial.println("🚀 Enviando ráfaga analítica integral a Railway...");
     int httpResponseCode = http.POST(requestBody);
 
     if (httpResponseCode > 0) {
         String response = http.getString();
-        Serial.println("✅ Sincronizado. Respuesta del servidor:");
-        Serial.println(response);
-
-        // Parsear la respuesta para actualizar tus consignas de control (set_vent_co2, etc.)
-        DynamicJsonDocument resDoc(1024);
-        deserializeJson(resDoc, response);
-        if (resDoc["status"] == "success") {
-             // Aquí actualizas tus variables globales de consigna ('set_compresor', etc.)
-             // Ejemplo: set_vent_co2 = resDoc["set_vent_co2"];
-        }
-
-        // 🔥 CRÍTICO: Limpiar el buffer reiniciando el contador a 0 para los siguientes 5 minutos
-        contadorLecturas = 0; 
+        Serial.println("✅ Sincronizado con éxito.");
         
+        // Aquí puedes procesar la respuesta del servidor para actualizar consignas si lo requieres.
+
+        contadorLecturas = 0; // Limpiar buffer de inmediato al confirmar recepción
     } else {
-        Serial.printf("❌ Error en POST: %text\n", http.errorToString(httpResponseCode).c_str());
-        // Nota: Si falla el internet, no reseteamos 'contadorLecturas' para no perder los datos, 
-        // pero ojo, si se llena el buffer (60), dejará de acumular hasta que vuelva la red.
+        Serial.printf("❌ Falló el envío. Código HTTP: %d. Conservando datos en RAM.\n", httpResponseCode);
     }
     http.end();
 }
@@ -531,62 +426,77 @@ void ejecutarControlLocal() {
 
 
 void loop() {
-    // 1. Adquisición de Datos (Variables físicas de los sensores)
+    // 1. Adquisición de Datos y Control Local Obligatorio
     leersensores(); 
-
-    // 2. Gestión de seguridad (Tiempos del compresor)
     actualizarCicloCompresor();
 
-    // 3. Sincronización Web Estratégica (Envía telemetría y recibe comandos JUNTOS)
-    // CRÍTICO: No satures el servidor. Usa un temporizador de no-bloqueo (Millis)
-    // para ejecutar la sincronización cada cierto tiempo (ej: cada 2 o 5 segundos)
-    static unsigned long ultimoEnvio = 0;
     unsigned long tiempoActual = millis();
     
-    if (tiempoActual - ultimoEnvio >= INTERVALO_MUESTREO) { // Sincroniza cada 3 segundos (Ajustable)
-      ultimoEnvio= tiempoActual;
-      sincronizarConServidorWeb();
-      if (contadorLecturas < MAX_LECTURAS) {
-        // Reemplaza estos valores de prueba con las variables reales de tus sensores:
-          bufferCultivo[contadorLecturas].temp_comp = temp_comp; // tu_variable_temperatura
-          bufferCultivo[contadorLecturas].temp_ext = t1;
-          bufferCultivo[contadorLecturas].hum_ext = h1;
-          bufferCultivo[contadorLecturas].temp_int_sup = t2;
-          bufferCultivo[contadorLecturas].hum_int_sup = h2;
-          bufferCultivo[contadorLecturas].temp_int_inf = t_inf;
-          bufferCultivo[contadorLecturas].hum_int_inf = h_inf;
-          bufferCultivo[contadorLecturas].co2_inf = co2;      // tu_variable_co2
-         
-          
-          // Datos PZEM
-          bufferCultivo[contadorLecturas].voltaje = 118.5;
-          bufferCultivo[contadorLecturas].corriente = 1.2;
-          bufferCultivo[contadorLecturas].potencia = 140.0;
-          bufferCultivo[contadorLecturas].energia = 45.2;
-          bufferCultivo[contadorLecturas].frecuencia = 60.0;
-          bufferCultivo[contadorLecturas].pf = 0.95;
-
-          contadorLecturas++;
-          Serial.printf("📦 Muestra guardada en buffer [%d/%d]\n", contadorLecturas, MAX_LECTURAS);
-        }
-      
-      }
-
     // =====================================================================
-    // TAREA 2: TRANSMISIÓN EN RÁFAGA A FASTAPI (Cada 5 minutos)
+    // TAREA 1: RECOLECCIÓN DE MUESTRAS EN RAM (Cada 5 segundos / INTERVALO_MUESTREO)
     // =====================================================================
-    if (tiempoActual - ultimaTransmision >= INTERVALO_TRANSMISION) {
-        ultimaTransmision = tiempoActual;
+    if (tiempoActual - ultimoMuestreo >= INTERVALO_MUESTREO) { 
+        ultimoMuestreo = tiempoActual;
         
-        if (WiFi.status() == WL_CONNECTED && contadorLecturas > 0) {
-            enviarRafagaANube();
-        } else {
-            Serial.println("⚠️ No se pudo enviar: Wi-Fi desconectado o buffer vacío.");
+        if (contadorLecturas < MAX_LECTURAS) {
+            // Almacenar Diagnóstico
+            bufferCultivo[contadorLecturas].err_max   = err_max;
+            bufferCultivo[contadorLecturas].err_sht1  = err_sht1;
+            bufferCultivo[contadorLecturas].err_sht2  = err_sht2;
+            bufferCultivo[contadorLecturas].err_scd   = err_scd;
+            bufferCultivo[contadorLecturas].err_pzem  = err_pzem;
+
+            // Almacenar Clima
+            bufferCultivo[contadorLecturas].temp_comp    = temp_comp; 
+            bufferCultivo[contadorLecturas].temp_ext     = t1; 
+            bufferCultivo[contadorLecturas].hum_ext      = h1;
+            bufferCultivo[contadorLecturas].temp_int_sup = t2; 
+            bufferCultivo[contadorLecturas].hum_int_sup  = h2;
+            bufferCultivo[contadorLecturas].co2_inf      = co2; 
+            bufferCultivo[contadorLecturas].temp_int_inf = t_inf;
+            bufferCultivo[contadorLecturas].hum_int_inf  = h_inf;
+            bufferCultivo[contadorLecturas].resistencia  = resistencia;
+            bufferCultivo[contadorLecturas].puerta       = puerta;
+
+            // Almacenar Eléctrico
+            bufferCultivo[contadorLecturas].voltaje         = pzem_voltaje;
+            bufferCultivo[contadorLecturas].corriente_neta  = pzem_corriente;
+            bufferCultivo[contadorLecturas].potencia_w      = pzem_potencia;
+            bufferCultivo[contadorLecturas].energia_kwh     = pzem_energia;
+            bufferCultivo[contadorLecturas].frecuencia_hz   = pzem_frecuencia;
+            bufferCultivo[contadorLecturas].factor_potencia = pzem_pf;
+
+            // Almacenar Actuadores
+            bufferCultivo[contadorLecturas].vent_lateral   = vent_lateral;
+            bufferCultivo[contadorLecturas].vent_superior  = vent_superior;
+            bufferCultivo[contadorLecturas].vent_co2       = vent_co2;
+            bufferCultivo[contadorLecturas].luz            = luz;
+            bufferCultivo[contadorLecturas].pwm_auxiliar   = pwm_auxiliar;
+            bufferCultivo[contadorLecturas].humidificador  = humidificador;
+            bufferCultivo[contadorLecturas].compresor      = compresor;
+            bufferCultivo[contadorLecturas].compresor_disponible   = compresor_disponible;
+            bufferCultivo[contadorLecturas].tiempo_ciclo_compresor = tiempo_restante_ciclo;
+
+            contadorLecturas++;
+            Serial.printf("📦 Muestra completa guardada en buffer [%d/%d]\n", contadorLecturas, MAX_LECTURAS);
         }
     }
 
+    // =====================================================================
+    // TAREA 2: ENVIAR RÁFAGA AUTOMÁTICA CUANDO EL BUFFER SE LLENE (60 Muestras)
+    // =====================================================================
+    if (contadorLecturas >= MAX_LECTURAS) {
+        Serial.println("🚩 Buffer lleno (5 minutos acumulados). Iniciando transferencia...");
+        
+        if (WiFi.status() == WL_CONNECTED) {
+            enviarRafagaANube();
+        } else {
+            Serial.println("⚠️ No se puede transmitir: Conexión Wi-Fi perdida. Reintentando en el próximo ciclo.");
+            // No reseteamos contadorLecturas para no perder la información en RAM
+        }
+    }
 
-    // Pequeña pausa opcional para estabilidad del núcleo de la ESP32
+    // Estabilidad del núcleo de la ESP32
     delay(10); 
 }
 
