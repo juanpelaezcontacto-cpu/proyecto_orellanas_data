@@ -11,9 +11,12 @@
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
 const char* password = "macp092021";
-const char* host     = "192.168.1.11"; // IP local de tu computadora de Python
-const uint16_t port  = 5005;          // Puerto arbitrario libre
-WiFiClient client;
+//const char* host     = "192.168.1.11"; // IP local de tu computadora de Python
+// La URL de tu servidor FastAPI (Local en fase de pruebas)
+// Reemplaza por la IP de tu PC. Cuando lo subas a la nube, será "https://tu-app.render.com/telemetria"
+const char* serverName = "http://192.168.1.11:8000/telemetria";
+//const uint16_t port  = 5005;          // Puerto arbitrario libre
+//WiFiClient client;
 
 // Pines conexion UART PZEM004T Sensor de V/I/P/Energía/f/pf/
 #define RXD2 16
@@ -201,7 +204,7 @@ void actualizarCicloCompresor() {
     }
   }
 }
-
+/*
 // Función para crear y enviar datos en Json
 void crearYenviarJSON() {
   JsonDocument doc;
@@ -237,7 +240,7 @@ void crearYenviarJSON() {
   doc["pwm_auxiliar"]     = pwm_aux;            // Estado PWM Auxiliar
   doc["humidificador"]    = estado_humidificador;
   doc["compresor"]        = estado_compresor;
-  doc["compresor_disponible"] = compresor_disponible;
+  doc["compresor_disponible"] = estado_compresor;
   doc["tiempo_ciclo_compresor"] = tiempo_restante_ciclo;
   if (client.connected()) {
     serializeJson(doc, client); // Envía el JSON directamente por Wi-Fi
@@ -245,7 +248,8 @@ void crearYenviarJSON() {
   }
   client.println();
 }
-
+*/
+/*
 void escucharComandosWifi(){
   if(client.available()>0){ //// Verificamos si hay datos entrantes desde Python
     String comando = client.readStringUntil('\n');
@@ -332,7 +336,7 @@ void escucharComandosWifi(){
       }
     }else{client.println(R"({"compresor_error":"dato_invalido"})");}
   }
-}
+}*/
 
 void leersensores(){
 unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA TELEMETRÍA
@@ -406,31 +410,172 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
       pzem_frecuencia   = pzem.frequency();
       pzem_pf           = pzem.pf();
     }
-    crearYenviarJSON();
+    //crearYenviarJSON();
   }
 }
 
-void loop() {
-  // Mantener o reconectar la conexión con Python
-  // Solo envia datos si hay comunicación
-  if (!client.connected()) {
-    Serial.println("Intentando conectar al servidor Python...");
-    if (client.connect(host, port)) {
-      Serial.println("Conectado a Python vía Wi-Fi!");
+void sincronizarConServidorWeb() {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        
+        // 1. Inicializar la conexión hacia el endpoint de FastAPI
+        http.begin(serverName);
+        http.addHeader("Content-Type", "application/json");
+
+        // 2. Crear el JSON de telemetría (Usa los nombres exactos de tu class Telemetria)
+        // Ajusta el tamaño (StaticJsonDocument) según el número de variables
+        StaticJsonDocument<1024> docRequest;
+        
+        // Registro de errores
+        docRequest["err_max"]  = err_max;
+        docRequest["err_sht1"] = err_sht1;
+        docRequest["err_sht2"] = err_sht2;
+        docRequest["err_scd"]  = err_scd;
+        docRequest["err_pzem"] = err_pzem;
+
+        // Telemetría Sensores
+        docRequest["resistencia"]  = resistencia;
+        docRequest["temp_comp"]    = temp_comp;
+        docRequest["temp_ext"]     = t1;
+        docRequest["hum_ext"]      = h1;
+        docRequest["temp_int_sup"] = t2;
+        docRequest["hum_int_sup"]  = h2;
+        docRequest["co2_inf"]      = co2;
+        docRequest["temp_int_inf"] = t_inf;
+        docRequest["hum_int_inf"]  = h_inf;
+        docRequest["puerta"]       = estadoPuerta;
+
+        // Telemetría Consumo
+        docRequest["voltaje"]          = pzem_voltaje;
+        docRequest["corriente_neta"]   = pzem_corriente;
+        docRequest["potencia_w"]       = pzem_potencia;
+        docRequest["energia_kwh"]      = pzem_energia;
+        docRequest["frecuencia_hz"]    = pzem_frecuencia;
+        docRequest["factor_potencia"]  = pzem_pf;
+
+        // Variables de estado de actuadores
+        docRequest["vent_lateral"]   = pwm_vent_lateral;
+        docRequest["vent_superior"]  = pwm_vent_superior;
+        docRequest["vent_co2"]       = pwm_vent_co2;
+        docRequest["luz"]            = pwm_luz;
+        docRequest["pwm_auxiliar"]   = pwm_aux;
+        docRequest["humidificador"]  = estado_humidificador;
+        docRequest["compresor"]      = estado_compresor;
+        docRequest["compresor_disponible"] = estado_compresor; // O la lógica de disponibilidad que uses
+        docRequest["tiempo_ciclo_compresor"] = tiempo_restante_ciclo;
+
+        String requestBody;
+        serializeJson(docRequest, requestBody);
+
+        // 3. Enviar la petición POST con los datos
+        int httpResponseCode = http.POST(requestBody);
+
+        // 4. Procesar la respuesta del servidor
+        if (httpResponseCode == 201 || httpResponseCode == 200) {
+            String responseBody = http.getString();
+            
+            // Decodificar el JSON de respuesta que FastAPI envió con los comandos
+            StaticJsonDocument<512> docResponse;
+            DeserializationError error = deserializeJson(docResponse, responseBody);
+
+            if (!error) {
+                // Verificamos que el servidor confirme la sincronización
+                if (docResponse["status"] == "success") {                 
+                    // Extraer los valores en el mismo orden que los envía Python:
+                    // [compresor, humidificador, vent_co2, vent_lateral, vent_superior, luz]
+                    int set_compresor     = docResponse["set_compresor"];
+                    int set_humidificador  = docResponse["set_humidificador"];
+                    int set_vent_co2       = docResponse["set_vent_co2"];
+                    int set_vent_lateral   = docResponse["set_vent_lateral"];
+                    int set_vent_superior  = docResponse["set_vent_superior"];
+                    int set_luz            = docResponse["set_luz"];
+
+                    // =============================================================
+                    // AQUÍ APLICAS LOS CAMBIOS A TUS PINES / RELÉS O SEÑALES PWM
+                    // =============================================================
+                    // --- CONTROL DIGITAL ON/OFF ---
+                    
+                    // Compresor (Pin 33)
+                    if (set_compresor != estado_compresor) {
+                        digitalWrite(compresor, set_compresor);
+                        estado_compresor = set_compresor;
+                        Serial.print("➡️ Compresor cambiado a: "); Serial.println(estado_compresor);
+                    }
+                    
+                    // Humidificador (Pin 4)
+                    if (set_humidificador != estado_humidificador) {
+                        digitalWrite(humidificador, set_humidificador);
+                        estado_humidificador = set_humidificador;
+                        Serial.print("➡️ Humidificador cambiado a: "); Serial.println(estado_humidificador);
+                    }
+
+                    // --- CONTROL PWM VIA LEDC (Canales internos) ---
+                    
+                    // Ventilador CO2
+                    if (set_vent_co2 != pwm_vent_co2) {
+                        ledcWrite(vent_co2, set_vent_co2);
+                        pwm_vent_co2 = set_vent_co2;
+                        Serial.print("➡️ Ventilador CO2 cambiado a: "); Serial.println(pwm_vent_co2);
+                    }
+
+                    // Ventilador Lateral
+                    if (set_vent_lateral != pwm_vent_lateral) {
+                        ledcWrite(vent_lateral, set_vent_lateral);
+                        pwm_vent_lateral = set_vent_lateral;
+                        Serial.print("➡️ Ventilador lateral cambiado a: "); Serial.println(pwm_vent_lateral);
+                    }
+
+                    // Ventilador Superior
+                    if (set_vent_superior != pwm_vent_superior) {
+                        ledcWrite(vent_superior, set_vent_superior);
+                        pwm_vent_superior = set_vent_superior;
+                        Serial.print("➡️ Ventilador Superior cambiado a: "); Serial.println(pwm_vent_superior);
+                    }
+
+                    // Iluminación
+                    if (set_luz != pwm_luz) {
+                        ledcWrite(luz, set_luz);
+                        pwm_luz = set_luz;
+                        Serial.print("➡️ Luz cambiada a: "); Serial.println(pwm_luz);
+                    }
+                    Serial.println("🔄 Todos los actuadores sincronizados con la nube.");
+                }
+            } else {
+                Serial.print("⚠️ Error al decodificar comandos del servidor: ");
+                Serial.println(error.c_str());
+            }
+        } else {
+            Serial.print("❌ Error en la petición HTTP POST. Código: ");
+            Serial.println(httpResponseCode);
+        }
+
+        // 5. Liberar recursos de la conexión
+        http.end();
     } else {
-      Serial.println("Fallo en la conexión. Reintentando en 5s...");
-      delay(5000);
-      //return; // Se usa para volver a iniciar el loop
+        Serial.println("⚠️ Wi-Fi desconectado. No se puede sincronizar.");
     }
-  }
-  // 2. Adquisición de Datos (Solo lee el hardware)
-  leersensores(); 
+}
 
-  // 4. Procesamiento de comandos externos
-  escucharComandosWifi(); // ESCUCHA ACTIVA DE COMANDOS (Se ejecuta continuamente, sin esperas)
-  // 5. Gestión de seguridad ciclo de encendido de compresor
-  actualizarCicloCompresor();
+void loop() {
+    // 1. Adquisición de Datos (Variables físicas de los sensores)
+    leersensores(); 
 
+    // 2. Gestión de seguridad (Tiempos del compresor)
+    actualizarCicloCompresor();
+
+    // 3. Sincronización Web Estratégica (Envía telemetría y recibe comandos JUNTOS)
+    // CRÍTICO: No satures el servidor. Usa un temporizador de no-bloqueo (Millis)
+    // para ejecutar la sincronización cada cierto tiempo (ej: cada 2 o 5 segundos)
+    static unsigned long ultimoEnvio = 0;
+    unsigned long tiempoActual = millis();
+    
+    if (tiempoActual - ultimoEnvio >= 3000) { // Sincroniza cada 3 segundos (Ajustable)
+        sincronizarConServidorWeb();
+        ultimoEnvio = tiempoActual;
+    }
+
+    // Pequeña pausa opcional para estabilidad del núcleo de la ESP32
+    delay(10); 
 }
 
 
