@@ -14,7 +14,7 @@ const char* password = "macp092021";
 //const char* host     = "192.168.1.11"; // IP local de tu computadora de Python
 // La URL de tu servidor FastAPI (Local en fase de pruebas)
 // Reemplaza por la IP de tu PC. Cuando lo subas a la nube, será "https://tu-app.render.com/telemetria"
-const char* serverName = "https://orellanas-backend-production.up.railway.app/telemetria";
+const char* serverName = "http://192.168.1.11:8000/telemetria";
 //const uint16_t port  = 5005;          // Puerto arbitrario libre
 //WiFiClient client;
 
@@ -65,8 +65,8 @@ int err_max = 0, err_sht1 = 0, err_sht2 = 0, err_scd = 0, err_pzem = 0;
 
 struct RegistroSensor {
   float resistencia = 0.0, temp_comp = 0.0;
-  float t1 = 0.0, h1 = 0.0; //SHT40 EXTERIOR
-  float t2 = 0.0, h2 = 0.0; //SHT40 INTERIOR
+  float t1 = 0.0, h1 = 0.0;
+  float t2 = 0.0, h2 = 0.0;
   uint16_t co2 = 0;
   float t_inf = 0.0, h_inf = 0.0;
   float pzem_voltaje = 0.0;
@@ -79,7 +79,7 @@ struct RegistroSensor {
 // Creamos el arreglo en RAM para almacenar la ráfaga
 RegistroSensor bufferCultivo[MAX_LECTURAS];
 
-const char* serverName = "orellanas-backend-production.up.railway.app/telemetria";
+const char* serverName = "http://<TU_IP_O_URL_NUBE>:7860/telemetria";
 
 const int maxIntentos = 50; // 20 intentos para leer el SCD * 100ms = 2 segundos de tolerancia máxima
 
@@ -485,13 +485,13 @@ void enviarRafagaANube() {
         obj["temp_int_inf"] = bufferCultivo[i].temp_int_inf;
         obj["hum_int_inf"] = bufferCultivo[i].hum_int_inf;
         obj["co2_inf"] = bufferCultivo[i].co2_inf;
-        obj["resistencia"] = bufferCultivo[i].resistencia;
-        obj["voltaje"] = bufferCultivo[i].voltaje;
-        obj["corriente_neta"] = bufferCultivo[i].corriente;
-        obj["potencia_w"] = bufferCultivo[i].potencia;
-        obj["energia_kwh"] = bufferCultivo[i].energia;
-        obj["frecuencia_hz"] = bufferCultivo[i].frecuencia;
-        obj["factor_potencia"] = bufferCultivo[i].pf;
+        
+        obj["voltaje"] = bufferCultivo[i].pzem_voltaje;
+        obj["corriente_neta"] = bufferCultivo[i].pzem_corriente;
+        obj["potencia_w"] = bufferCultivo[i].pzem_potencia;
+        obj["energia_kwh"] = bufferCultivo[i].pzem_energia;
+        obj["frecuencia_hz"] = bufferCultivo[i].pzem_frecuencia;
+        obj["factor_potencia"] = bufferCultivo[i].pzem_pf;
     }
 
     String requestBody;
@@ -548,15 +548,15 @@ void loop() {
       sincronizarConServidorWeb();
       if (contadorLecturas < MAX_LECTURAS) {
         // Reemplaza estos valores de prueba con las variables reales de tus sensores:
-          bufferCultivo[contadorLecturas].temp_comp = 25.4; // tu_variable_temperatura
-          bufferCultivo[contadorLecturas].temp_ext = 22.1;
-          bufferCultivo[contadorLecturas].hum_ext = 70.5;
-          bufferCultivo[contadorLecturas].temp_int_sup = 24.8;
-          bufferCultivo[contadorLecturas].hum_int_sup = 88.2;
-          bufferCultivo[contadorLecturas].temp_int_inf = 24.2;
-          bufferCultivo[contadorLecturas].hum_int_inf = 90.1;
-          bufferCultivo[contadorLecturas].co2_inf = 850;      // tu_variable_co2
-          bufferCultivo[contadorLecturas].resistencia = 12.5;
+          bufferCultivo[contadorLecturas].temp_comp = temp_comp; // tu_variable_temperatura
+          bufferCultivo[contadorLecturas].temp_ext = t1;
+          bufferCultivo[contadorLecturas].hum_ext = h1;
+          bufferCultivo[contadorLecturas].temp_int_sup = t2;
+          bufferCultivo[contadorLecturas].hum_int_sup = h2;
+          bufferCultivo[contadorLecturas].temp_int_inf = t_inf;
+          bufferCultivo[contadorLecturas].hum_int_inf = h_inf;
+          bufferCultivo[contadorLecturas].co2_inf = co2;      // tu_variable_co2
+         
           
           // Datos PZEM
           bufferCultivo[contadorLecturas].voltaje = 118.5;
