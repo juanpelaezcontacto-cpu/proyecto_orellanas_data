@@ -14,6 +14,7 @@ from pydantic import BaseModel
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from typing import Optional
+from typing import List
 
 # Inicializar la aplicación web
 app = FastAPI(
@@ -40,6 +41,7 @@ print("⚡ Conexión inicializada con Supabase.")
 # 2. MOLDE DE VALIDACIÓN DE DATOS (PYDANTIC)
 # Definir la estructura exacta del JSON que envía la ESP32
 # ==========================================
+# Definimos el sub-modelo para cada lectura del historial
 class Telemetria(BaseModel):
     # Registro de errores de todos los sensores (0 = OK, 1 = FAIL)
     err_max: int
@@ -79,18 +81,13 @@ class Telemetria(BaseModel):
     compresor_disponible: bool
     tiempo_ciclo_compresor: int  # Equivalente a long (segundos restantes)
 
+# 1. Definimos el sub-modelo para cada lectura del historial
+
+
 @app.post("/telemetria")
 async def recibir_datos(data: Telemetria): 
     # Obtener el tiempo exacto de Colombia
     hora_actual = datetime.now(ZoneInfo("America/Bogota")).isoformat()
-    # Convertir los datos a diccionario
-    #datos_json = data.dict()
-    #datos_json["timestamp"] = hora_actual
-    # Convertimos el JSON que llegó de la ESP32 en un diccionario de Python  
-    #registro = data.model_dump()
-    # Le pegamos el tiempo de Colombia
-    #registro["timestamp"] = datetime.now(ZoneInfo("America/Bogota")).isoformat()
-    # Tomamos el registro completo y lo mandamos a Supabase en una sola línea
     """Función auxiliar que se ejecuta en su propio hilo para no congelar el Wi-Fi"""
     try:
         # 2. SEPARACIÓN MODULAR DE DATOS (Alineado con tus 3 tablas en Supabase)
@@ -169,3 +166,10 @@ async def validation_exception_handler(request, exc):
         status_code=422,
         content={"detail": exc.errors(), "body": exc.body},
     )
+
+if __name__ == "__main__":
+    import uvicorn
+    import os
+    # Railway asigna el puerto en la variable 'PORT'. Si no existe, usa 8080 por defecto.
+    puerto = int(os.environ.get("PORT", 8080))
+    uvicorn.run("main:app", host="0.0.0.0", port=puerto, reload=False)
