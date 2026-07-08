@@ -1,20 +1,14 @@
-    #*********************************************************************
 import os
 import json
-import serial
-import time
-import threading
 from dotenv import load_dotenv
 from supabase import create_client, Client
-import socket
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from typing import Optional
-from typing import List
+from typing import Optional, List
 
 # Inicializar la aplicación web
 app = FastAPI(
