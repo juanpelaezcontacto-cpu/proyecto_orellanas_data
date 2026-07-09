@@ -280,42 +280,42 @@ function App() {
               </ResponsiveContainer>
             </div>
           </div>
-        
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
-          
-          {/* ESTADO DE ACTUADORES */}
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ToggleLeft size={18} color="#4299e1"/> Estado de Actuadores</h3>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: estado.humidificador ? '#f0fff4' : '#edf2f7', color: estado.humidificador ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>💧 Humidificador: {estado.humidificador ? 'ON' : 'OFF'}</div>
-              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: estado.compresor ? '#f0fff4' : '#edf2f7', color: estado.compresor ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>❄️ Compresor: {estado.compresor ? 'ON' : 'OFF'}</div>
-              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Lateral: {estado.vent_lateral}%</div>
-              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Superior: {estado.vent_superior}%</div>
-              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>🔄 Extractor CO₂: {estado.vent_co2}%</div>
-              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💡 Iluminación: {estado.luz}%</div>
-            </div>
-          </div>
 
-          {/* ALERTAS DE HARDWARE */}
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-            <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} color="#38a169"/> Integridad del Hardware</h3>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {['err_max', 'err_sht1', 'err_sht2', 'err_scd', 'err_pzem'].map((sensor) => {
-                const tieneError = estado[sensor] > 0;
-                return (
-                  <div key={sensor} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: tieneError ? '#fff5f5' : '#f0fff4', border: tieneError ? '1px solid #feb2b2' : '1px solid #c6f6d5', fontSize: '12px' }}>
-                    <span style={{ fontWeight: '600', color: tieneError ? '#9b2c2c' : '#22543d', textTransform: 'uppercase' }}>{sensor.replace('err_', 'Sensor ')}</span>
-                    {tieneError ? (
-                      <span style={{ color: '#e53e3e', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}><AlertTriangle size={12}/> Falla ({estado[sensor]})</span>
-                    ) : (
-                      <span style={{ color: '#38a169', fontWeight: '600' }}>Operativo</span>
-                    )}
-                  </div>
-                );
-              })}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+            {/* ESTADO DE ACTUADORES */}
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ToggleLeft size={18} color="#4299e1"/> Estado de Actuadores</h3>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: ultimoEstado.humidificador ? '#f0fff4' : '#edf2f7', color: ultimoEstado.humidificador ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>💧 Humidificador: {ultimoEstado.humidificador ? 'ON' : 'OFF'}</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: ultimoEstado.compresor ? '#f0fff4' : '#edf2f7', color: ultimoEstado.compresor ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>❄️ Compresor: {ultimoEstado.compresor ? 'ON' : 'OFF'}</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Lateral: {ultimoEstado.vent_lateral}%</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Superior: {ultimoEstado.vent_superior}%</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>🔄 Extractor CO₂: {ultimoEstado.vent_co2}%</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💡 Iluminación: {ultimoEstado.luz}%</div>
+              </div>
             </div>
-          </div>
 
+            {/* INTEGRIDAD DEL HARDWARE */}
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} color="#38a169"/> Integridad del Hardware</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {['err_max', 'err_sht1', 'err_sht2', 'err_scd', 'err_pzem'].map((sensor) => {
+                  const tieneError = ultimoEstado[sensor] > 0;
+                  return (
+                    <div key={sensor} style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: tieneError ? '#fff5f5' : '#f0fff4', border: tieneError ? '1px solid #feb2b2' : '1px solid #c6f6d5', fontSize: '12px' }}>
+                      <span style={{ fontWeight: '600', color: tieneError ? '#9b2c2c' : '#22543d', textTransform: 'uppercase' }}>{sensor.replace('err_', 'Sensor ')}</span>
+                      {tieneError ? (
+                        <span style={{ color: '#e53e3e', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}><AlertTriangle size={12}/> Falla ({ultimoEstado[sensor]})</span>
+                      ) : (
+                        <span style={{ color: '#38a169', fontWeight: '600' }}>Operativo</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+          </div>
         </div>
       )}
 
