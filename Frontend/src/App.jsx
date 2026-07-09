@@ -2,30 +2,31 @@ import React, { useEffect, useState } from 'react';
 import { supabase } from './supabaseClient';
 import { 
   ResponsiveContainer, LineChart, Line, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine 
+  XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
+  ComposedChart
 } from 'recharts';
 import { 
-  Thermometer, Droplets, Wind, Eye, 
+  Thermometer, Droplets, Wind, 
   Zap, Activity, Gauge, RefreshCw, 
-  ToggleLeft, AlertTriangle, ShieldCheck, LayoutDashboard
+  ToggleLeft, AlertTriangle, ShieldCheck
 } from 'lucide-react';
 
 function App() {
   const [datosClima, setDatosClima] = useState([]);
   const [energia, setEnergia] = useState({ voltaje: 0, corriente_neta: 0, potencia_w: 0, energia_kwh: 0, frequency_hz: 0, factor_potencia: 0, resistencia: 0 });
-  const [estado, setEstado] = useState({});
+  // CAMBIO: Ahora almacenamos el historial de estados para la gráfica
+  const [historialEstado, setHistorialEstado] = useState([]);
   const [cargando, setCargando] = useState(true);
-  
-  // Estado para controlar la pestaña activa
   const [pestanaActiva, setPestanaActiva] = useState('cultivo');
 
   const consultarTodo = async () => {
     try {
       setCargando(true);
+      // CAMBIO: Se aumentó el límite de estado_sistema de 1 a 40 para poder graficar su rendimiento
       const [resClima, resEnergia, resEstado] = await Promise.all([
-        supabase.from('lecturas_sensores').select('*').order('created_at', { ascending: false }).limit(500),
+        supabase.from('lecturas_sensores').select('*').order('created_at', { ascending: false }).limit(40),
         supabase.from('monitoreo_energetico').select('*').order('created_at', { ascending: false }).limit(1),
-        supabase.from('estado_sistema').select('*').order('created_at', { ascending: false }).limit(500)
+        supabase.from('estado_sistema').select('*').order('created_at', { ascending: false }).limit(40)
       ]);
 
       if (resClima.error) throw resClima.error;
@@ -38,8 +39,18 @@ function App() {
       });
       setDatosClima(climaFormateado);
 
+      // Formatear el historial de estados acoplando la hora y convirtiendo booleanos a binarios para Recharts
+      const estadoFormateado = [...resEstado.data].reverse().map(item => {
+        const partes = item.created_at.split(/[T ]/);
+        return { 
+          ...item, 
+          hora: partes[1] ? partes[1].substring(0, 8) : '00:00:00',
+          compresor_binario: item.compresor ? 1 : 0 // Convierte true/false a 1/0 para la gráfica
+        };
+      });
+      setHistorialEstado(estadoFormateado);
+
       if (resEnergia.data.length > 0) setEnergia(resEnergia.data[0]);
-      if (resEstado.data.length > 0) setEstado(resEstado.data[0]);
     } catch (error) {
       console.error('Error:', error.message);
     } finally {
@@ -51,9 +62,23 @@ function App() {
     consultarTodo();
   }, []);
 
+  // Tomamos el último registro del array para mantener los indicadores estáticos funcionando
+  const ultimoEstado = historialEstado.length > 0 ? historialEstado[historialEstado.length - 1] : {};
+  
   const ultimaLecturaClima = datosClima && datosClima.length > 0 
     ? datosClima[datosClima.length - 1] 
     : { temp_int_inf: 0, hum_int_inf: 0, temp_int_sup: 0, hum_int_sup: 0, temp_ext: 0, hum_ext: 0, co2_inf: 0, temp_comp: 0 };
+
+  // Acoplamos la temperatura del compresor (que viene en la tabla de clima) al historial de estados basándonos en el índice
+  // Esto es una solución temporal limpia si los sensores registran con la misma frecuencia
+  const datosMaquinaria = historialEstado.map((est, index) => {
+    const climaAsociado = datosClima[index] || {};
+    return {
+      hora: est.hora,
+      compresor_activo: est.compresor_binario,
+      temp_compresor: climaAsociado.temp_comp || 0
+    };
+  });
 
   const CardIndicador = ({ icono, titulo, valor, valorNumerico, minOptimo, maxOptimo, colorIcono, bgIcono }) => {
     const fueraDeRango = valorNumerico !== undefined && (valorNumerico < minOptimo || valorNumerico > maxOptimo);
@@ -67,8 +92,7 @@ function App() {
         boxShadow: '0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.03)', 
         display: 'flex', 
         alignItems: 'center', 
-        gap: '14px',
-        transition: 'all 0.2s ease-in-out'
+        gap: '14px'
       }}>
         <div style={{ 
           backgroundColor: fueraDeRango ? '#e53e3e' : bgIcono, 
@@ -89,7 +113,6 @@ function App() {
     );
   };
 
-  // Estilos básicos para los botones de las pestañas
   const estiloTab = (id) => ({
     padding: '10px 20px',
     fontSize: '14px',
@@ -100,7 +123,6 @@ function App() {
     borderBottom: pestanaActiva === id ? '2px solid #3182ce' : '2px solid transparent',
     borderRadius: '6px 6px 0 0',
     cursor: 'pointer',
-    transition: 'all 0.2s ease',
     marginRight: '8px'
   });
 
@@ -120,27 +142,25 @@ function App() {
           <h1 style={{ fontSize: '22px', fontWeight: '700', margin: 0, color: '#1a202c', letterSpacing: '-0.02em' }}>Centro de Control - Orellanas IoT</h1>
           <p style={{ color: '#718096', margin: '4px 0 0 0', fontSize: '13px' }}>Infraestructura de monitoreo microclimático avanzado</p>
         </div>
-        <button onClick={consultarTodo} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#3182ce', color: 'white', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', boxShadow: '0 1px 2px rgba(49,130,206,0.2)' }}>
+        <button onClick={consultarTodo} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#3182ce', color: 'white', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px' }}>
           <RefreshCw size={14} /> Sincronizar
         </button>
       </header>
 
-      {/* BARRA DE PESTAÑAS (TABS) */}
+      {/* BARRA DE PESTAÑAS */}
       <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px' }}>
         <button style={estiloTab('cultivo')} onClick={() => setPestanaActiva('cultivo')}>Vista General del Cultivo</button>
         <button style={estiloTab('energia')} onClick={() => setPestanaActiva('energia')}>Analítica Energética</button>
         <button style={estiloTab('diagnostico')} onClick={() => setPestanaActiva('diagnostico')}>Consola de Diagnóstico</button>
       </div>
 
-      {/* CONTENIDO DINÁMICO SEGÚN LA PESTAÑA ACTIVA */}
-      
+      {/* VISTA GENERAL DEL CULTIVO */}
       {pestanaActiva === 'cultivo' && (
         <div>
-          {/* INDICADORES DE AMBIENTE */}
           <section style={{ marginBottom: '24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
               <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Inf." valor={`${ultimaLecturaClima.temp_int_inf}°C`} valorNumerico={ultimaLecturaClima.temp_int_inf} minOptimo={20} maxOptimo={28} colorIcono="#e53e3e" bgIcono="#fff5f5" />
-              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={20} maxOptimo={28} colorIcono="#dd6b20" bgIcono="#fffaf0" />
+              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={20} maxOptimo={28} colorIcono="#ed8936" bgIcono="#fffaf0" />
               <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={80} maxOptimo={96} colorIcono="#3182ce" bgIcono="#ebf8ff" />
               <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={80} maxOptimo={96} colorIcono="#805ad5" bgIcono="#faf5ff" />
               <CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={800} colorIcono="#319795" bgIcono="#e6fffa" />
@@ -148,9 +168,9 @@ function App() {
             </div>
           </section>
 
-          {/* GRÁFICAS DEL CULTIVO (Distribución 2 columnas) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '20px', marginBottom: '20px' }}>
-            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.01)' }}>
+            {/* Gráfica de Temperatura limpia sin compresor */}
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Historial Térmico Coordenado (°C)</h3>
               <div style={{ width: '100%', height: 240 }}>
                 <ResponsiveContainer>
@@ -158,19 +178,20 @@ function App() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
                     <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
                     <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} stroke="#718096" />
-                    <Tooltip contentStyle={{ fontFamily: 'sans-serif', fontSize: '12px' }} />
+                    <Tooltip contentStyle={{ fontSize: '12px' }} />
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
                     <ReferenceLine y={20} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Mín', fill: '#e53e3e', fontSize: 9 }} />
                     <ReferenceLine y={28} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Máx', fill: '#e53e3e', fontSize: 9 }} />
-                    <Line type="natural" dataKey="temp_int_inf" name="Inferior" stroke="#e53e3e" strokeWidth={2} dot={false} />
-                    <Line type="natural" dataKey="temp_int_sup" name="Superior" stroke="#ed8936" strokeWidth={2} dot={false} />
-                    <Line type="natural" dataKey="temp_ext" name="Exterior" stroke="#718096" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
+                    <Line type="natural" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="temp_int_sup" name="Sup." stroke="#ed8936" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="temp_ext" name="Ext." stroke="#718096" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
 
-            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.01)' }}>
+            {/* Gráfica de Humedad con Humedad Exterior agregada */}
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Historial de Humedad Relativa (%)</h3>
               <div style={{ width: '100%', height: 240 }}>
                 <ResponsiveContainer>
@@ -178,21 +199,19 @@ function App() {
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
                     <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
                     <YAxis domain={[0, 100]} tick={{fontSize: 10}} stroke="#718096" />
-                    <Tooltip contentStyle={{ fontFamily: 'sans-serif', fontSize: '12px' }} />
+                    <Tooltip contentStyle={{ fontSize: '12px' }} />
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
                     <ReferenceLine y={80} stroke="#90cdf4" strokeDasharray="4 4" label={{ value: 'Crítico 80%', fill: '#3182ce', fontSize: 9 }} />
-                    <Line type="natural" dataKey="hum_int_inf" name="Inferior" stroke="#3182ce" strokeWidth={2} dot={false} />
-                    <Line type="natural" dataKey="hum_int_sup" name="Superior" stroke="#805ad5" strokeWidth={2} dot={false} />
-                    <Line type="natural" dataKey="hum_ext" name="Exterior" stroke="#a0aec0" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-
+                    <Line type="natural" dataKey="hum_int_inf" name="Inf." stroke="#3182ce" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="hum_int_sup" name="Sup." stroke="#805ad5" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="hum_ext" name="Ext." stroke="#a0aec0" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
             </div>
           </div>
 
-          {/* AREA CHART PARA CO2 */}
-          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.01)' }}>
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
             <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Acumulación de CO₂ en Cámara (ppm)</h3>
             <div style={{ width: '100%', height: 200 }}>
               <ResponsiveContainer>
@@ -216,9 +235,9 @@ function App() {
         </div>
       )}
 
+      {/* ANALÍTICA ENERGÉTICA */}
       {pestanaActiva === 'energia' && (
         <div>
-          {/* SECCIÓN ENERGÍA */}
           <section style={{ marginBottom: '24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
               <CardIndicador icono={<Zap size={18} />} titulo="Potencia Activa" valor={`${energia.potencia_w} W`} colorIcono="#d69e2e" bgIcono="#fefcbf" />
@@ -228,24 +247,15 @@ function App() {
             </div>
           </section>
 
-          {/* DETALLES DE CONSUMO SECUNDARIOS */}
           <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px' }}>
-            <div>
-              <span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Frecuencia de Red</span>
-              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.frecuencia_hz || 60} Hz</span>
-            </div>
-            <div>
-              <span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Factor de Potencia</span>
-              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.factor_potencia || 1.0}</span>
-            </div>
-            <div>
-              <span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Resistencia Calculada</span>
-              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.resistencia || 0} Ω</span>
-            </div>
+            <div><span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Frecuencia de Red</span><span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.frecuencia_hz || 60} Hz</span></div>
+            <div><span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Factor de Potencia</span><span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.factor_potencia || 1.0}</span></div>
+            <div><span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Resistencia Calculada</span><span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.resistencia || 0} Ω</span></div>
           </div>
         </div>
       )}
 
+      {/* CONSOLA DE DIAGNÓSTICO */}
       {pestanaActiva === 'diagnostico' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
           
