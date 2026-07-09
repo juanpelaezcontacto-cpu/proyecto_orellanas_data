@@ -341,9 +341,9 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
     }else{
       err_pzem = 0;
       pzem_voltaje      = pzem.voltage();
-      pzem_corriente    = pzem.current()/3; 
-      pzem_potencia     = pzem.power()/3;
-      pzem_energia      = pzem.energy()/3;
+      pzem_corriente    = pzem.current()/3.0; 
+      pzem_potencia     = pzem.power()/3.0;
+      pzem_energia      = pzem.energy()/3.0;
       pzem_frecuencia   = pzem.frequency();
       pzem_pf           = pzem.pf();
     }
@@ -352,6 +352,7 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
 }
 
 void enviarRafagaANube() {
+    
     HTTPClient http;
     http.begin(serverName);
     http.addHeader("Content-Type", "application/json");
@@ -405,14 +406,41 @@ void enviarRafagaANube() {
 
     Serial.println("🚀 Enviando ráfaga analítica integral a Railway...");
     int httpResponseCode = http.POST(requestBody);
+    //int httpResponseCode = http.POST(jsonOutput);
 
     if (httpResponseCode > 0) {
-        String response = http.getString();
-        Serial.println("✅ Sincronizado con éxito.");
+        Serial.printf("✅ Ráfaga enviada. Código servidor: %d\n", httpResponseCode);
+        String payload = http.getString();
+        // 2. Deserializar el JSON de retorno
+        DynamicJsonDocument docRespuesta(1024);
+        deserializeJson(docRespuesta, payload);
         
-        // Aquí puedes procesar la respuesta del servidor para actualizar consignas si lo requieres.
-
-        contadorLecturas = 0; // Limpiar buffer de inmediato al confirmar recepción
+        // 3. Extraer el valor que se ajustó en Supabase y actualizar las variables locales
+        pwm_vent_lateral  = docRespuesta["set_vent_lateral"];  // <-- Pasa de 0 a 255
+        pwm_vent_superior = docRespuesta["set_vent_superior"];
+        pwm_vent_co2      = docRespuesta["set_vent_co2"];
+        pwm_luz           = docRespuesta["set_luz"];
+        estado_humidificador     = docRespuesta["set_humidificador"];
+        estado_compresor         = docRespuesta["set_compresor"];
+        // 4. ¡CRÍTICO! Forzar el cambio físico en los pines GPIO usando ledcWrite
+        ledcWrite(vent_lateral, pwm_vent_lateral);
+        ledcWrite(vent_superior, pwm_vent_superior);
+        ledcWrite(vent_co2, pwm_vent_co2);
+        ledcWrite(luz, pwm_luz);
+        digitalWrite(humidificador, estado_humidificador ? HIGH : LOW);
+        digitalWrite(compresor, estado_compresor ? HIGH : LOW);
+        
+        // 4. Monitor de diagnóstico completo en la consola serie
+        Serial.println("\n--- 📥 COMANDOS RECIBIDOS DESDE LA NUBE ---");
+        Serial.printf("🌀 Vent. Lateral  : %d / 255\n", pwm_vent_lateral);
+        Serial.printf("🌀 Vent. Superior : %d / 255\n", pwm_vent_superior);
+        Serial.printf("🫁 Vent. CO2      : %d / 255\n", pwm_vent_co2);
+        Serial.printf("💡 Intensidad Luz : %d / 255\n", pwm_luz);
+        Serial.printf("💨 Humidificador  : %s\n", humidificador ? "ENCENDIDO" : "APAGADO");
+        Serial.printf("❄️ Compresor      : %s\n", compresor ? "ENCENDIDO" : "APAGADO");
+        Serial.println("-------------------------------------------\n");
+        // 5. Vaciar el buffer para los próximos 5 minutos
+        contadorLecturas = 0;
     } else {
         Serial.printf("❌ Falló el envío. Código HTTP: %d. Conservando datos en RAM.\n", httpResponseCode);
     }
@@ -467,13 +495,13 @@ void loop() {
             bufferCultivo[contadorLecturas].factor_potencia = pzem_pf;
 
             // Almacenar Actuadores
-            bufferCultivo[contadorLecturas].vent_lateral   = vent_lateral;
-            bufferCultivo[contadorLecturas].vent_superior  = vent_superior;
-            bufferCultivo[contadorLecturas].vent_co2       = vent_co2;
-            bufferCultivo[contadorLecturas].luz            = luz;
-            bufferCultivo[contadorLecturas].pwm_auxiliar   = pwm_auxiliar;
-            bufferCultivo[contadorLecturas].humidificador  = humidificador;
-            bufferCultivo[contadorLecturas].compresor      = compresor;
+            bufferCultivo[contadorLecturas].vent_lateral   = pwm_vent_lateral;
+            bufferCultivo[contadorLecturas].vent_superior  = pwm_vent_superior;
+            bufferCultivo[contadorLecturas].vent_co2       = pwm_vent_co2;
+            bufferCultivo[contadorLecturas].luz            = pwm_luz;
+            bufferCultivo[contadorLecturas].pwm_auxiliar   = pwm_aux;
+            bufferCultivo[contadorLecturas].humidificador  = estado_humidificador;
+            bufferCultivo[contadorLecturas].compresor      = estado_compresor;
             bufferCultivo[contadorLecturas].compresor_disponible   = compresor_disponible;
             bufferCultivo[contadorLecturas].tiempo_ciclo_compresor = tiempo_restante_ciclo;
 

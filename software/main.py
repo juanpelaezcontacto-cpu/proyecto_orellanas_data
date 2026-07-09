@@ -144,8 +144,7 @@ async def recibir_datos(data: PaqueteRafaga):
                 "humidificador": 1 if lectura.humidificador else 0, 
                 "compresor": 1 if lectura.compresor else 0,         
                 "puerta": lectura.puerta,                    
-                "compresor_disponible": 1 if lectura.compresor_disponible else 0,
-                "tiempo_ciclo_compresor": lectura.tiempo_ciclo_compresor
+                "compresor_disponible": 1 if lectura.compresor_disponible else 0
             })
 
         # 1. Intentar insertar sensores (Tabla principal)
