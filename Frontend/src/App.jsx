@@ -263,83 +263,69 @@ function App() {
     
     {/* CONTENEDOR PRINCIPAL DE MAQUINARIA (Dividido en 2 Columnas) */}
     <div style={{ 
-      backgroundColor: 'white', 
-      padding: '20px', 
-      borderRadius: '12px', 
-      border: '1px solid #e2e8f0',
-      display: 'grid',
-      gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
-      gap: '24px',
-      alignItems: 'start'
-    }}>
-      
-      {/* COLUMNA IZQUIERDA: LA GRÁFICA (Toma más espacio en pantallas grandes) */}
-      <div style={{ gridColumn: 'span 3', minWidth: '0' }}>
-        <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 4px 0', color: '#1a202c' }}>Análisis Dinámico de Fatiga: Compresor vs Ciclos de Trabajo</h3>
-        <p style={{ color: '#718096', margin: '0 0 16px 0', fontSize: '12px' }}>Correlación temporal entre la temperatura del bloque del motor (°C) y sus estados de encendido directos.</p>
-        <div style={{ width: '100%', height: 260 }}>
-          <ResponsiveContainer>
-            <ComposedChart data={datosMaquinaria}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
-              <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
-              <YAxis yAxisId="izq" orientation="left" domain={[0, 70]} tick={{fontSize: 10}} stroke="#4a5568" label={{ value: 'Temperatura (°C)', angle: -90, position: 'insideLeft', style: {fontSize: 11, fill: '#4a5568'} }} />
-              <YAxis yAxisId="der" orientation="right" domain={[0, 1]} ticks={[0, 1]} tickFormatter={(v) => v === 1 ? 'ON' : 'OFF'} tick={{fontSize: 10}} stroke="#3182ce" />
-              <Tooltip contentStyle={{ fontSize: '12px' }} />
-              <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
-              <ReferenceLine yAxisId="izq" y={55} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: 'Umbral Crítico (55°C)', fill: '#e53e3e', fontSize: 10, position: 'bottom' }} />
-              <Area yAxisId="der" type="step" dataKey="compresor_activo" name="Estado Compresor" fill="#ebf8ff" stroke="#3182ce" strokeWidth={1} fillOpacity={0.6} />
-              <Line yAxisId="izq" type="monotone" dataKey="temp_compresor" name="Temp. Compresor" stroke="#2d3748" strokeWidth={2.5} dot={false} />
-            </ComposedChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-
-      {/* COLUMNA DERECHA: INDICADORES NUMÉRICOS SECUNDARIOS DE MONITOREO EN TIEMPO REAL */}
-      <div style={{ 
-        gridColumn: 'span 1', 
-        display: 'flex', 
-        flexDirection: 'column', 
-        gap: '12px',
-        borderLeft: '1px solid #edf2f7',
-        paddingLeft: '20px',
-        height: '100%',
-        justifyContent: 'center'
-      }}>
-        <span style={{ fontSize: '11px', fontWeight: '700', color: '#a0aec0', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Métricas en Tiempo Real</span>
-        
-        {/* KPI: Temperatura actual del bloque */}
-        <div style={{
-          padding: '14px',
-          borderRadius: '8px',
-          backgroundColor: ultimaLecturaClima.temp_comp > 55 ? '#fff5f5' : '#f7fafc',
-          border: ultimaLecturaClima.temp_comp > 55 ? '1px solid #feb2b2' : '1px solid #e2e8f0',
-          transition: 'all 0.2s'
+          backgroundColor: 'white', 
+          padding: '20px', 
+          borderRadius: '12px', 
+          border: '1px solid #e2e8f0',
+          position: 'relative', // Permite posicionar el indicador digital adentro
+          marginBottom: '24px'
         }}>
-          <span style={{ fontSize: '12px', color: ultimaLecturaClima.temp_comp > 55 ? '#c53030' : '#718096', display: 'block', fontWeight: '500' }}>Temp. Bloque Motor</span>
-          <span style={{ fontSize: '24px', fontWeight: '800', color: ultimaLecturaClima.temp_comp > 55 ? '#9b2c2c' : '#1a202c', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            {cargando ? '...' : `${ultimaLecturaClima.temp_comp}°C`}
-            {ultimaLecturaClima.temp_comp > 55 && <span style={{ fontSize: '14px' }}>⚠️</span>}
-          </span>
-        </div>
+          
+          {/* INDICADOR DIGITAL INTEGRADO (Esquina Superior Derecha) */}
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            right: '20px',
+            backgroundColor: ultimaLecturaClima.temp_comp > 55 ? '#fff5f5' : '#f7fafc',
+            border: ultimaLecturaClima.temp_comp > 55 ? '1px solid #feb2b2' : '1px solid #e2e8f0',
+            padding: '6px 12px',
+            borderRadius: '8px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            zIndex: 10 // Asegura que flote sobre la gráfica
+          }}>
+            <span style={{ fontSize: '11px', fontWeight: '600', color: '#718096' }}>Actual:</span>
+            <span style={{ 
+              fontSize: '14px', 
+              fontWeight: '800', 
+              color: ultimaLecturaClima.temp_comp > 55 ? '#9b2c2c' : '#1a202c' 
+            }}>
+              {cargando ? '...' : `${ultimaLecturaClima.temp_comp}°C`}
+            </span>
+            {ultimaLecturaClima.temp_comp > 55 && <span style={{ fontSize: '12px' }}>⚠️</span>}
+          </div>
 
-        {/* KPI: Carga térmica estimada vs Energía */}
-        <div style={{
-          padding: '14px',
-          borderRadius: '8px',
-          backgroundColor: '#f7fafc',
-          border: '1px solid #e2e8f0'
-        }}>
-          <span style={{ fontSize: '12px', color: '#718096', display: 'block', fontWeight: '500' }}>Consumo Dinámico Actual</span>
-          <span style={{ fontSize: '20px', fontWeight: '700', color: '#2d3748' }}>
-            {cargando ? '...' : `${ultimoEstado.compresor ? energia.potencia_w : 0} W`}
-          </span>
-          <span style={{ fontSize: '10px', color: '#a0aec0', display: 'block', marginTop: '2px' }}>
-            {ultimoEstado.compresor ? '⚡ Trabajo Inductivo Activo' : '💤 En espera (Standby)'}
-          </span>
+          <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 4px 0', color: '#1a202c' }}>Análisis Dinámico de Fatiga: Compresor vs Ciclos de Trabajo</h3>
+          <p style={{ color: '#718096', margin: '0 0 16px 0', fontSize: '12px' }}>Correlación temporal entre la temperatura del bloque del motor (°C) y sus estados de encendido directos.</p>
+          
+          <div style={{ width: '100%', height: 260 }}>
+            <ResponsiveContainer>
+              <ComposedChart data={datosMaquinaria}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
+                <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
+                
+                {/* Eje Y Izquierdo: Temperatura del Compresor (Escala industrial 0-70°C) */}
+                <YAxis yAxisId="izq" orientation="left" domain={[0, 70]} tick={{fontSize: 10}} stroke="#4a5568" label={{ value: 'Temperatura (°C)', angle: -90, position: 'insideLeft', style: {fontSize: 11, fill: '#4a5568'} }} />
+                
+                {/* Eje Y Derecho: Estado Binario del Actuador (0 o 1) */}
+                <YAxis yAxisId="der" orientation="right" domain={[0, 1]} ticks={[0, 1]} tickFormatter={(v) => v === 1 ? 'ON' : 'OFF'} tick={{fontSize: 10}} stroke="#3182ce" />
+                
+                <Tooltip contentStyle={{ fontSize: '12px' }} />
+                <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
+                
+                {/* Alerta de Umbral Crítico para protección térmica del hardware */}
+                <ReferenceLine yAxisId="izq" y={55} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: 'Umbral Crítico (55°C)', fill: '#e53e3e', fontSize: 10, position: 'bottom' }} />
+                
+                {/* Área Sombreada: Estado ON/OFF vinculada al eje derecho */}
+                <Area yAxisId="der" type="step" dataKey="compresor_activo" name="Estado Compresor" fill="#ebf8ff" stroke="#3182ce" strokeWidth={1} fillOpacity={0.6} />
+                
+                {/* Línea Principal: Temperatura vinculada al eje izquierdo */}
+                <Line yAxisId="izq" type="monotone" dataKey="temp_compresor" name="Temp. Compresor" stroke="#2d3748" strokeWidth={2.5} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </div>
-      </div>
-
-    </div>
 
     {/* Aquí abajo continuaría el div original de grid que tiene "Estado de Actuadores" e "Integridad del Hardware" */}
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
