@@ -336,10 +336,10 @@ function App() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: ultimoEstado.humidificador ? '#f0fff4' : '#edf2f7', color: ultimoEstado.humidificador ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>💧 Humidificador: {ultimoEstado.humidificador ? 'ON' : 'OFF'}</div>
                 <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: ultimoEstado.compresor ? '#f0fff4' : '#edf2f7', color: ultimoEstado.compresor ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>❄️ Compresor: {ultimoEstado.compresor ? 'ON' : 'OFF'}</div>
-                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Lateral: {ultimoEstado.vent_lateral}%</div>
-                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Superior: {ultimoEstado.vent_superior}%</div>
-                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>🔄 Extractor CO₂: {ultimoEstado.vent_co2}%</div>
-                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💡 Iluminación: {ultimoEstado.luz}%</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Lateral: {ultimoEstado.vent_lateral}</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Superior: {ultimoEstado.vent_superior}</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>🔄 Extractor CO₂: {ultimoEstado.vent_co2}</div>
+                <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💡 Iluminación: {ultimoEstado.luz}</div>
               </div>
             </div>
 
