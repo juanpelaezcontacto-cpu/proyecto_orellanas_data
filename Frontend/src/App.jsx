@@ -19,7 +19,7 @@ function App() {
 
       // Consultas en paralelo para optimizar velocidad
       const [resClima, resEnergia, resEstado] = await Promise.all([
-        supabase.from('lecturas_sensores').select('*').order('created_at', { ascending: false }).limit(40),
+        supabase.from('lecturas_sensores').select('*').order('created_at', { ascending: false }).limit(500),
         supabase.from('monitoreo_energetico').select('*').order('created_at', { ascending: false }).limit(1),
         supabase.from('estado_sistema').select('*').order('created_at', { ascending: false }).limit(1)
       ]);
