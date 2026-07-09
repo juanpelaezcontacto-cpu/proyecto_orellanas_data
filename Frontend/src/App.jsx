@@ -23,9 +23,9 @@ function App() {
     try {
       setCargando(true);
       const [resClima, resEnergia, resEstado] = await Promise.all([
-        supabase.from('lecturas_sensores').select('*').order('created_at', { ascending: false }).limit(40),
+        supabase.from('lecturas_sensores').select('*').order('created_at', { ascending: false }).limit(500),
         supabase.from('monitoreo_energetico').select('*').order('created_at', { ascending: false }).limit(1),
-        supabase.from('estado_sistema').select('*').order('created_at', { ascending: false }).limit(1)
+        supabase.from('estado_sistema').select('*').order('created_at', { ascending: false }).limit(500)
       ]);
 
       if (resClima.error) throw resClima.error;
@@ -162,8 +162,9 @@ function App() {
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
                     <ReferenceLine y={20} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Mín', fill: '#e53e3e', fontSize: 9 }} />
                     <ReferenceLine y={28} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Máx', fill: '#e53e3e', fontSize: 9 }} />
-                    <Line type="natural" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2} dot={false} />
-                    <Line type="natural" dataKey="temp_int_sup" name="Sup." stroke="#ed8936" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="temp_int_inf" name="Inferior" stroke="#e53e3e" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="temp_int_sup" name="Superior" stroke="#ed8936" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="temp_ext" name="Exterior" stroke="#718096" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -180,8 +181,10 @@ function App() {
                     <Tooltip contentStyle={{ fontFamily: 'sans-serif', fontSize: '12px' }} />
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
                     <ReferenceLine y={80} stroke="#90cdf4" strokeDasharray="4 4" label={{ value: 'Crítico 80%', fill: '#3182ce', fontSize: 9 }} />
-                    <Line type="natural" dataKey="hum_int_inf" name="Inf." stroke="#3182ce" strokeWidth={2} dot={false} />
-                    <Line type="natural" dataKey="hum_int_sup" name="Sup." stroke="#805ad5" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="hum_int_inf" name="Inferior" stroke="#3182ce" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="hum_int_sup" name="Superior" stroke="#805ad5" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="hum_ext" name="Exterior" stroke="#a0aec0" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
+
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -244,6 +247,40 @@ function App() {
       )}
 
       {pestanaActiva === 'diagnostico' && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+          
+          {/* NUEVO: GRÁFICA DE RENDIMIENTO DE MAQUINARIA (Eje Y Doble) */}
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 4px 0', color: '#1a202c' }}>Análisis Dinámico de Fatiga: Compresor vs Ciclos de Trabajo</h3>
+            <p style={{ color: '#718096', margin: '0 0 16px 0', fontSize: '12px' }}>Correlación temporal entre la temperatura del bloque del motor (°C) y sus estados de encendido directos.</p>
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer>
+                <ComposedChart data={datosMaquinaria}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
+                  <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
+                  
+                  {/* Eje Y Izquierdo: Temperatura del Compresor (Escala industrial 0-70°C) */}
+                  <YAxis yAxisId="izq" orientation="left" domain={[0, 70]} tick={{fontSize: 10}} stroke="#4a5568" label={{ value: 'Temperatura (°C)', angle: -90, position: 'insideLeft', style: {fontSize: 11, fill: '#4a5568'} }} />
+                  
+                  {/* Eje Y Derecho: Estado Binario del Actuador (0 o 1) */}
+                  <YAxis yAxisId="der" orientation="right" domain={[0, 1]} ticks={[0, 1]} tickFormatter={(v) => v === 1 ? 'ON' : 'OFF'} tick={{fontSize: 10}} stroke="#3182ce" />
+                  
+                  <Tooltip contentStyle={{ fontSize: '12px' }} />
+                  <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
+                  
+                  {/* Alerta de Umbral Crítico para protección térmica del hardware */}
+                  <ReferenceLine yAxisId="izq" y={55} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: 'Umbral Crítico (55°C)', fill: '#e53e3e', fontSize: 10, position: 'bottom' }} />
+                  
+                  {/* Área Sombreada: Estado ON/OFF vinculada al eje derecho */}
+                  <Area yAxisId="der" type="step" dataKey="compresor_activo" name="Estado Compresor" fill="#ebf8ff" stroke="#3182ce" strokeWidth={1} fillOpacity={0.6} />
+                  
+                  {/* Línea Principal: Temperatura vinculada al eje izquierdo */}
+                  <Line yAxisId="izq" type="monotone" dataKey="temp_compresor" name="Temp. Compresor" stroke="#2d3748" strokeWidth={2.5} dot={false} />
+                </ComposedChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
           
           {/* ESTADO DE ACTUADORES */}
