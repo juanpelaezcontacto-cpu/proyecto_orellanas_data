@@ -148,13 +148,30 @@ async def recibir_datos(data: PaqueteRafaga):
                 "tiempo_ciclo_compresor": lectura.tiempo_ciclo_compresor
             })
 
-        # Inserciones masivas (Bulk Inserts) en Supabase para mantener las 3 tablas sincronizadas en tiempo
-        if lista_sensores:
-            supabase.table("lecturas_sensores").insert(lista_sensores).execute()
-        if lista_energia:
-            supabase.table("monitoreo_energetico").insert(lista_energia).execute()
-        if lista_estado:
-            supabase.table("estado_sistema").insert(lista_estado).execute()
+        # 1. Intentar insertar sensores (Tabla principal)
+        try:
+            if lista_sensores:
+                supabase.table("lecturas_sensores").insert(lista_sensores).execute()
+        except Exception as e_sens:
+            print(f"❌ Error específico en tabla lecturas_sensores: {e_sens}")
+
+        # 2. Intentar insertar energía (Tratamiento de Nulos del PZEM)
+        try:
+            if lista_energia:
+                # Si los valores son 0 o None, aseguramos que se guarden de forma que Postgres no proteste
+                for fila in lista_energia:
+                    if fila.get("voltaje") is None:
+                        fila["voltaje"] = 0.0
+                supabase.table("monitoreo_energetico").insert(lista_energia).execute()
+        except Exception as e_energ:
+            print(f"❌ Error específico en tabla monitoreo_energetico: {e_energ}")
+
+        # 3. Intentar insertar estado (Aislamiento de errores)
+        try:
+            if lista_estado:
+                supabase.table("estado_sistema").insert(lista_estado).execute()
+        except Exception as e_est:
+            print(f"❌ Error específico en tabla estado_sistema: {e_est}")
         
         # 5. Consultar y retornar las directrices de control desde la nube
         res_control = supabase.table("controles").select("*").eq("id", 1).execute()
