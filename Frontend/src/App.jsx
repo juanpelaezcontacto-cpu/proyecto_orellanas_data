@@ -148,7 +148,7 @@ function App() {
       {/* GRÁFICAS HISTÓRICAS (Mantienen la estructura anterior) */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '24px' }}>
         <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '14px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0 0 16px 0' }}>Historial Térmico</h3>
+          <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0 0 16px 0' }}>Temperatura</h3>
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
               <LineChart data={datosClima}>
@@ -157,9 +157,9 @@ function App() {
                 <YAxis domain={['auto', 'auto']} tick={{fontSize: 11}} stroke="#a0aec0" />
                 <Tooltip />
                 <Legend verticalAlign="top" height={32}/>
-                <Line type="monotone" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2.5} dot={false} />
-                <Line type="monotone" dataKey="temp_int_sup" name="Sup." stroke="#ed8936" strokeWidth={2.5} dot={false} />
-                <Line type="monotone" dataKey="temp_ext" name="Ext." stroke="#718096" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
+                <Line type="monotone" dataKey="temp_int_inf" name="Inferior" stroke="#e53e3e" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="temp_int_sup" name="Superior" stroke="#ed8936" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="temp_ext" name="Exterior" stroke="#718096" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
