@@ -7,14 +7,17 @@ import {
 import { 
   Thermometer, Droplets, Wind, Eye, 
   Zap, Activity, Gauge, RefreshCw, 
-  ToggleLeft, AlertTriangle, ShieldCheck 
+  ToggleLeft, AlertTriangle, ShieldCheck, LayoutDashboard
 } from 'lucide-react';
 
 function App() {
   const [datosClima, setDatosClima] = useState([]);
-  const [energia, setEnergia] = useState({ voltaje: 0, corriente_neta: 0, potencia_w: 0, energia_kwh: 0, frecuencia_hz: 0, factor_potencia: 0, resistencia: 0 });
+  const [energia, setEnergia] = useState({ voltaje: 0, corriente_neta: 0, potencia_w: 0, energia_kwh: 0, frequency_hz: 0, factor_potencia: 0, resistencia: 0 });
   const [estado, setEstado] = useState({});
   const [cargando, setCargando] = useState(true);
+  
+  // Estado para controlar la pestaña activa
+  const [pestanaActiva, setPestanaActiva] = useState('cultivo');
 
   const consultarTodo = async () => {
     try {
@@ -52,22 +55,20 @@ function App() {
     ? datosClima[datosClima.length - 1] 
     : { temp_int_inf: 0, hum_int_inf: 0, temp_int_sup: 0, hum_int_sup: 0, temp_ext: 0, hum_ext: 0, co2_inf: 0, temp_comp: 0 };
 
-  // PUNTO 3: Helper de Tarjeta Dinámica con Alertas de Rango Crítico
   const CardIndicador = ({ icono, titulo, valor, valorNumerico, minOptimo, maxOptimo, colorIcono, bgIcono }) => {
-    // Validamos si la variable actual está fuera de los rangos óptimos del hongo
     const fueraDeRango = valorNumerico !== undefined && (valorNumerico < minOptimo || valorNumerico > maxOptimo);
     
     return (
       <div style={{ 
-        backgroundColor: fueraDeRango ? '#fff5f5' : 'white', // Fondo rojo suave si hay alerta
-        border: fueraDeRango ? '1px solid #feb2b2' : '1px solid transparent',
+        backgroundColor: fueraDeRango ? '#fff5f5' : 'white', 
+        border: fueraDeRango ? '1px solid #feb2b2' : '1px solid #e2e8f0',
         padding: '16px', 
         borderRadius: '12px', 
-        boxShadow: '0 2px 4px rgba(0,0,0,0.03)', 
+        boxShadow: '0 1px 3px rgba(0,0,0,0.02), 0 1px 2px rgba(0,0,0,0.03)', 
         display: 'flex', 
         alignItems: 'center', 
         gap: '14px',
-        transition: 'all 0.3s ease'
+        transition: 'all 0.2s ease-in-out'
       }}>
         <div style={{ 
           backgroundColor: fueraDeRango ? '#e53e3e' : bgIcono, 
@@ -77,7 +78,7 @@ function App() {
           display: 'flex' 
         }}>{icono}</div>
         <div>
-          <span style={{ fontSize: '13px', color: fueraDeRango ? '#e53e3e' : '#718096', display: 'block', fontWeight: '500' }}>
+          <span style={{ fontSize: '13px', color: fueraDeRango ? '#c53030' : '#718096', display: 'block', fontWeight: '500' }}>
             {titulo} {fueraDeRango && '⚠️'}
           </span>
           <span style={{ fontSize: '20px', fontWeight: 'bold', color: fueraDeRango ? '#9b2c2c' : '#1a202c' }}>
@@ -88,149 +89,198 @@ function App() {
     );
   };
 
+  // Estilos básicos para los botones de las pestañas
+  const estiloTab = (id) => ({
+    padding: '10px 20px',
+    fontSize: '14px',
+    fontWeight: '600',
+    backgroundColor: pestanaActiva === id ? '#ffffff' : 'transparent',
+    color: pestanaActiva === id ? '#2b6cb0' : '#4a5568',
+    border: 'none',
+    borderBottom: pestanaActiva === id ? '2px solid #3182ce' : '2px solid transparent',
+    borderRadius: '6px 6px 0 0',
+    cursor: 'pointer',
+    transition: 'all 0.2s ease',
+    marginRight: '8px'
+  });
+
   return (
-    <div style={{ padding: '24px', fontFamily: 'Inter, system-ui, sans-serif', backgroundColor: '#f7fafc', minHeight: '100vh', color: '#2d3748' }}>
+    <div style={{ 
+      padding: '24px', 
+      fontFamily: 'Inter, system-ui, -apple-system, sans-serif', 
+      backgroundColor: '#f7fafc', 
+      minHeight: '100vh', 
+      color: '#2d3748',
+      WebkitFontSmoothing: 'antialiased'
+    }}>
       
       {/* HEADER */}
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <div>
-          <h1 style={{ fontSize: '24px', fontWeight: 'bold', margin: 0, color: '#1a202c' }}>Centro de Control - Orellanas IoT</h1>
-          <p style={{ color: '#718096', margin: '4px 0 0 0', fontSize: '14px' }}>Infraestructura de monitoreo microclimático avanzado</p>
+          <h1 style={{ fontSize: '22px', fontWeight: '700', margin: 0, color: '#1a202c', letterSpacing: '-0.02em' }}>Centro de Control - Orellanas IoT</h1>
+          <p style={{ color: '#718096', margin: '4px 0 0 0', fontSize: '13px' }}>Infraestructura de monitoreo microclimático avanzado</p>
         </div>
-        <button onClick={consultarTodo} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#3182ce', color: 'white', border: 'none', padding: '10px 18px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600' }}>
-          <RefreshCw size={16} /> Sincronizar Datos
+        <button onClick={consultarTodo} style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#3182ce', color: 'white', border: 'none', padding: '10px 16px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', fontSize: '13px', boxShadow: '0 1px 2px rgba(49,130,206,0.2)' }}>
+          <RefreshCw size={14} /> Sincronizar
         </button>
       </header>
 
-      {/* SECCIÓN INDICADORES AMBIENTALES */}
-      <section style={{ marginBottom: '32px' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase', color: '#4a5568', marginBottom: '12px', letterSpacing: '0.05em' }}>📊 Sensores de Ambiente</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
-          {/* Rangos Óptimos pasados por Props: Temp (20-28°C), Humedad (80-95%), CO2 (0-800ppm) */}
-          <CardIndicador icono={<Thermometer size={20} />} titulo="Temp. Interior Inf." valor={`${ultimaLecturaClima.temp_int_inf}°C`} valorNumerico={ultimaLecturaClima.temp_int_inf} minOptimo={20} maxOptimo={28} colorIcono="#e53e3e" bgIcono="#fff5f5" />
-          <CardIndicador icono={<Thermometer size={20} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={20} maxOptimo={28} colorIcono="#dd6b20" bgIcono="#fffaf0" />
-          <CardIndicador icono={<Droplets size={20} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={80} maxOptimo={96} colorIcono="#3182ce" bgIcono="#ebf8ff" />
-          <CardIndicador icono={<Droplets size={20} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={80} maxOptimo={96} colorIcono="#805ad5" bgIcono="#faf5ff" />
-          <CardIndicador icono={<Wind size={20} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={800} colorIcono="#319795" bgIcono="#e6fffa" />
-          <CardIndicador icono={<Eye size={20} />} titulo="Temp. Compresor" valor={`${ultimaLecturaClima.temp_comp}°C`} valorNumerico={ultimaLecturaClima.temp_comp} minOptimo={0} maxOptimo={65} colorIcono="#4a5568" bgIcono="#edf2f7" />
-          <CardIndicador icono={<Thermometer size={20} />} titulo="Temp. Exterior" valor={`${ultimaLecturaClima.temp_ext}°C`} colorIcono="#718096" bgIcono="#f7fafc" />
-          <CardIndicador icono={<Droplets size={20} />} titulo="Humedad Exterior" valor={`${ultimaLecturaClima.hum_ext}%`} colorIcono="#718096" bgIcono="#f7fafc" />
-        </div>
-      </section>
-
-      {/* PUNTO 1 Y 2: REJILLA DE GRÁFICAS EN COLUMNAS CON LÍNEAS DE REFERENCIA */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(480px, 1fr))', gap: '24px', marginBottom: '32px' }}>
-        
-        {/* GRÁFICA: TEMPERATURAS (Líneas Curvas Suavas con type="natural") */}
-        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '14px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 16px 0', color: '#2d3748' }}>Historial Térmico Coordenado (°C)</h3>
-          <div style={{ width: '100%', height: 260 }}>
-            <ResponsiveContainer>
-              <LineChart data={datosClima}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
-                <XAxis dataKey="hora" tick={{fontSize: 11}} stroke="#a0aec0" />
-                <YAxis domain={['auto', 'auto']} tick={{fontSize: 11}} stroke="#a0aec0" />
-                <Tooltip />
-                <Legend verticalAlign="top" height={32}/>
-                {/* Líneas de referencia óptimas para el hongo */}
-                <ReferenceLine y={20} stroke="#fc8181" strokeDasharray="3 3" label={{ value: 'Mín', fill: '#e53e3e', fontSize: 10 }} />
-                <ReferenceLine y={28} stroke="#fc8181" strokeDasharray="3 3" label={{ value: 'Máx', fill: '#e53e3e', fontSize: 10 }} />
-                <Line type="natural" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2.5} dot={false} />
-                <Line type="natural" dataKey="temp_int_sup" name="Sup." stroke="#ed8936" strokeWidth={2.5} dot={false} />
-                <Line type="natural" dataKey="temp_ext" name="Ext." stroke="#718096" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* GRÁFICA: HUMEDADES */}
-        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '14px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 16px 0', color: '#2d3748' }}>Historial de Humedad Relativa (%)</h3>
-          <div style={{ width: '100%', height: 260 }}>
-            <ResponsiveContainer>
-              <LineChart data={datosClima}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
-                <XAxis dataKey="hora" tick={{fontSize: 11}} stroke="#a0aec0" />
-                <YAxis domain={[0, 100]} tick={{fontSize: 11}} stroke="#a0aec0" />
-                <Tooltip />
-                <Legend verticalAlign="top" height={32}/>
-                {/* Línea de umbral crítico de deshidratación */}
-                <ReferenceLine y={80} stroke="#63b3ed" strokeDasharray="4 4" label={{ value: 'Crítico 80%', fill: '#3182ce', fontSize: 10 }} />
-                <Line type="natural" dataKey="hum_int_inf" name="Inf." stroke="#3182ce" strokeWidth={2.5} dot={false} />
-                <Line type="natural" dataKey="hum_int_sup" name="Sup." stroke="#805ad5" strokeWidth={2.5} dot={false} />
-                <Line type="natural" dataKey="hum_ext" name="Ext." stroke="#a0aec0" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* GRÁFICA: AREA CHART PARA CO2 (Efecto de llenado traslúcido) */}
-        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '14px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)', gridColumn: '1 / -1' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 16px 0', color: '#2d3748' }}>Acumulación de CO₂ en Cámara (ppm)</h3>
-          <div style={{ width: '100%', height: 220 }}>
-            <ResponsiveContainer>
-              <AreaChart data={datosClima}>
-                <defs>
-                  <linearGradient id="colorCo2" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#319795" stopOpacity={0.3}/>
-                    <stop offset="95%" stopColor="#319795" stopOpacity={0}/>
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
-                <XAxis dataKey="hora" tick={{fontSize: 11}} stroke="#a0aec0" />
-                <YAxis domain={['auto', 'auto']} tick={{fontSize: 11}} stroke="#a0aec0" />
-                <Tooltip />
-                <ReferenceLine y={800} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: 'Límite Renovación Aire', fill: '#e53e3e', fontSize: 11, position: 'top' }} />
-                <Area type="natural" dataKey="co2_inf" name="CO₂ Interior" stroke="#319795" fillOpacity={1} fill="url(#colorCo2)" strokeWidth={2.5} />
-              </AreaChart>
-            </ResponsiveContainer>
-          </div>
-        </div>
-
+      {/* BARRA DE PESTAÑAS (TABS) */}
+      <div style={{ display: 'flex', borderBottom: '1px solid #e2e8f0', marginBottom: '24px' }}>
+        <button style={estiloTab('cultivo')} onClick={() => setPestanaActiva('cultivo')}>Vista General del Cultivo</button>
+        <button style={estiloTab('energia')} onClick={() => setPestanaActiva('energia')}>Analítica Energética</button>
+        <button style={estiloTab('diagnostico')} onClick={() => setPestanaActiva('diagnostico')}>Consola de Diagnóstico</button>
       </div>
 
-      {/* SECCIÓN 3: ENERGÍA */}
-      <section style={{ marginBottom: '32px' }}>
-        <h2 style={{ fontSize: '14px', fontWeight: 'bold', textTransform: 'uppercase', color: '#4a5568', marginBottom: '12px', letterSpacing: '0.05em' }}>⚡ Monitoreo Eléctrico (PZEM)</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
-          <CardIndicador icono={<Zap size={20} />} titulo="Potencia Activa" valor={`${energia.potencia_w} W`} colorIcono="#d69e2e" bgIcono="#fefcbf" />
-          <CardIndicador icono={<Gauge size={20} />} titulo="Voltaje de Línea" valor={`${energia.voltaje} V`} colorIcono="#3182ce" bgIcono="#ebf8ff" />
-          <CardIndicador icono={<Activity size={20} />} titulo="Corriente Neta" valor={`${energia.corriente_neta} A`} colorIcono="#e53e3e" bgIcono="#fff5f5" />
-          <CardIndicador icono={<Gauge size={20} />} titulo="Consumo Total" valor={`${energia.energia_kwh} kWh`} colorIcono="#38a169" bgIcono="#f0fff4" />
-        </div>
-      </section>
+      {/* CONTENIDO DINÁMICO SEGÚN LA PESTAÑA ACTIVA */}
+      
+      {pestanaActiva === 'cultivo' && (
+        <div>
+          {/* INDICADORES DE AMBIENTE */}
+          <section style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Inf." valor={`${ultimaLecturaClima.temp_int_inf}°C`} valorNumerico={ultimaLecturaClima.temp_int_inf} minOptimo={20} maxOptimo={28} colorIcono="#e53e3e" bgIcono="#fff5f5" />
+              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={20} maxOptimo={28} colorIcono="#dd6b20" bgIcono="#fffaf0" />
+              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={80} maxOptimo={96} colorIcono="#3182ce" bgIcono="#ebf8ff" />
+              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={80} maxOptimo={96} colorIcono="#805ad5" bgIcono="#faf5ff" />
+              <CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={800} colorIcono="#319795" bgIcono="#e6fffa" />
+              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Exterior" valor={`${ultimaLecturaClima.temp_ext}°C`} colorIcono="#4a5568" bgIcono="#edf2f7" />
+            </div>
+          </section>
 
-      {/* ACTUADORES & COMPONENTES DE DIAGNÓSTICO */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '24px' }}>
-        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '14px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ToggleLeft color="#4299e1"/> Estado de Actuadores</h3>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div style={{ padding: '10px', borderRadius: '8px', backgroundColor: estado.humidificador ? '#f0fff4' : '#edf2f7', color: estado.humidificador ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '13px' }}>💧 Humidificador: {estado.humidificador ? 'ON' : 'OFF'}</div>
-            <div style={{ padding: '10px', borderRadius: '8px', backgroundColor: estado.compresor ? '#f0fff4' : '#edf2f7', color: estado.compresor ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '13px' }}>❄️ Compresor: {estado.compresor ? 'ON' : 'OFF'}</div>
-            <div style={{ padding: '10px', borderRadius: '8px', backgroundColor: estado.vent_lateral ? '#e6fffa' : '#edf2f7', color: estado.vent_lateral ? '#234e52' : '#4a5568', fontSize: '13px' }}>💨 Vent. Lateral: {estado.vent_lateral}%</div>
-            <div style={{ padding: '10px', borderRadius: '8px', backgroundColor: estado.vent_superior ? '#e6fffa' : '#edf2f7', color: estado.vent_superior ? '#234e52' : '#4a5568', fontSize: '13px' }}>💨 Vent. Superior: {estado.vent_superior}%</div>
+          {/* GRÁFICAS DEL CULTIVO (Distribución 2 columnas) */}
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.01)' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Historial Térmico Coordenado (°C)</h3>
+              <div style={{ width: '100%', height: 240 }}>
+                <ResponsiveContainer>
+                  <LineChart data={datosClima}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
+                    <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
+                    <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} stroke="#718096" />
+                    <Tooltip contentStyle={{ fontFamily: 'sans-serif', fontSize: '12px' }} />
+                    <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
+                    <ReferenceLine y={20} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Mín', fill: '#e53e3e', fontSize: 9 }} />
+                    <ReferenceLine y={28} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Máx', fill: '#e53e3e', fontSize: 9 }} />
+                    <Line type="natural" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="temp_int_sup" name="Sup." stroke="#ed8936" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+
+            <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.01)' }}>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Historial de Humedad Relativa (%)</h3>
+              <div style={{ width: '100%', height: 240 }}>
+                <ResponsiveContainer>
+                  <LineChart data={datosClima}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
+                    <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
+                    <YAxis domain={[0, 100]} tick={{fontSize: 10}} stroke="#718096" />
+                    <Tooltip contentStyle={{ fontFamily: 'sans-serif', fontSize: '12px' }} />
+                    <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
+                    <ReferenceLine y={80} stroke="#90cdf4" strokeDasharray="4 4" label={{ value: 'Crítico 80%', fill: '#3182ce', fontSize: 9 }} />
+                    <Line type="natural" dataKey="hum_int_inf" name="Inf." stroke="#3182ce" strokeWidth={2} dot={false} />
+                    <Line type="natural" dataKey="hum_int_sup" name="Sup." stroke="#805ad5" strokeWidth={2} dot={false} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          </div>
+
+          {/* AREA CHART PARA CO2 */}
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', boxShadow: '0 1px 3px rgba(0,0,0,0.01)' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Acumulación de CO₂ en Cámara (ppm)</h3>
+            <div style={{ width: '100%', height: 200 }}>
+              <ResponsiveContainer>
+                <AreaChart data={datosClima}>
+                  <defs>
+                    <linearGradient id="colorCo2" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor="#319795" stopOpacity={0.2}/>
+                      <stop offset="95%" stopColor="#319795" stopOpacity={0}/>
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
+                  <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
+                  <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} stroke="#718096" />
+                  <Tooltip contentStyle={{ fontSize: '12px' }} />
+                  <ReferenceLine y={800} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: 'Renovación Necesaria', fill: '#c53030', fontSize: 10, position: 'top' }} />
+                  <Area type="natural" dataKey="co2_inf" name="CO₂ Interior" stroke="#319795" fillOpacity={1} fill="url(#colorCo2)" strokeWidth={2} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </div>
         </div>
+      )}
 
-        <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '14px', boxShadow: '0 4px 6px rgba(0,0,0,0.02)' }}>
-          <h3 style={{ fontSize: '15px', fontWeight: 'bold', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck color="#38a169"/> Alertas de Hardware</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {['err_max', 'err_sht1', 'err_sht2', 'err_scd', 'err_pzem'].map((sensor) => {
-              const tieneError = estado[sensor] > 0;
-              return (
-                <div key={sensor} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '8px 12px', borderRadius: '8px', backgroundColor: tieneError ? '#fff5f5' : '#f0fff4', fontSize: '13px' }}>
-                  <span style={{ fontWeight: '500', textTransform: 'uppercase' }}>{sensor.replace('err_', 'Sensor ')}</span>
-                  {tieneError ? (
-                    <span style={{ color: '#e53e3e', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}><AlertTriangle size={14}/> Falla ({estado[sensor]})</span>
-                  ) : (
-                    <span style={{ color: '#38a169', fontWeight: '600' }}>OK</span>
-                  )}
-                </div>
-              );
-            })}
+      {pestanaActiva === 'energia' && (
+        <div>
+          {/* SECCIÓN ENERGÍA */}
+          <section style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+              <CardIndicador icono={<Zap size={18} />} titulo="Potencia Activa" valor={`${energia.potencia_w} W`} colorIcono="#d69e2e" bgIcono="#fefcbf" />
+              <CardIndicador icono={<Gauge size={18} />} titulo="Voltaje de Línea" valor={`${energia.voltaje} V`} colorIcono="#3182ce" bgIcono="#ebf8ff" />
+              <CardIndicador icono={<Activity size={18} />} titulo="Corriente Neta" valor={`${energia.corriente_neta} A`} colorIcono="#e53e3e" bgIcono="#fff5f5" />
+              <CardIndicador icono={<Gauge size={18} />} titulo="Consumo Acumulado" valor={`${energia.energia_kwh} kWh`} colorIcono="#38a169" bgIcono="#f0fff4" />
+            </div>
+          </section>
+
+          {/* DETALLES DE CONSUMO SECUNDARIOS */}
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0', display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '20px' }}>
+            <div>
+              <span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Frecuencia de Red</span>
+              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.frecuencia_hz || 60} Hz</span>
+            </div>
+            <div>
+              <span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Factor de Potencia</span>
+              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.factor_potencia || 1.0}</span>
+            </div>
+            <div>
+              <span style={{ fontSize: '12px', color: '#718096', display: 'block' }}>Resistencia Calculada</span>
+              <span style={{ fontSize: '18px', fontWeight: 'bold' }}>{energia.resistencia || 0} Ω</span>
+            </div>
           </div>
         </div>
-      </div>
+      )}
+
+      {pestanaActiva === 'diagnostico' && (
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '20px' }}>
+          
+          {/* ESTADO DE ACTUADORES */}
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ToggleLeft size={18} color="#4299e1"/> Estado de Actuadores</h3>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: estado.humidificador ? '#f0fff4' : '#edf2f7', color: estado.humidificador ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>💧 Humidificador: {estado.humidificador ? 'ON' : 'OFF'}</div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: estado.compresor ? '#f0fff4' : '#edf2f7', color: estado.compresor ? '#2f855a' : '#4a5568', fontWeight: '600', fontSize: '12px' }}>❄️ Compresor: {estado.compresor ? 'ON' : 'OFF'}</div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Lateral: {estado.vent_lateral}%</div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💨 Vent. Superior: {estado.vent_superior}%</div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>🔄 Extractor CO₂: {estado.vent_co2}%</div>
+              <div style={{ padding: '12px', borderRadius: '8px', backgroundColor: '#f7fafc', border: '1px solid #e2e8f0', fontSize: '12px' }}>💡 Iluminación: {estado.luz}%</div>
+            </div>
+          </div>
+
+          {/* ALERTAS DE HARDWARE */}
+          <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+            <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} color="#38a169"/> Integridad del Hardware</h3>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {['err_max', 'err_sht1', 'err_sht2', 'err_scd', 'err_pzem'].map((sensor) => {
+                const tieneError = estado[sensor] > 0;
+                return (
+                  <div key={sensor} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: tieneError ? '#fff5f5' : '#f0fff4', border: tieneError ? '1px solid #feb2b2' : '1px solid #c6f6d5', fontSize: '12px' }}>
+                    <span style={{ fontWeight: '600', color: tieneError ? '#9b2c2c' : '#22543d', textTransform: 'uppercase' }}>{sensor.replace('err_', 'Sensor ')}</span>
+                    {tieneError ? (
+                      <span style={{ color: '#e53e3e', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}><AlertTriangle size={12}/> Falla ({estado[sensor]})</span>
+                    ) : (
+                      <span style={{ color: '#38a169', fontWeight: '600' }}>Operativo</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+        </div>
+      )}
 
     </div>
   );
