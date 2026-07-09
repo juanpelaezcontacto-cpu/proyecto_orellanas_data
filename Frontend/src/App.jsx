@@ -285,7 +285,7 @@ function App() {
             gap: '6px',
             zIndex: 10 // Asegura que flote sobre la gráfica
           }}>
-            <span style={{ fontSize: '11px', fontWeight: '600', color: '#718096' }}>Actual:</span>
+            <span style={{ fontSize: '11px', fontWeight: '600', color: '#718096' }}>Temperatura Compresor:</span>
             <span style={{ 
               fontSize: '14px', 
               fontWeight: '800', 
