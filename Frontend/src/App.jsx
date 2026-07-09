@@ -186,7 +186,7 @@ function App() {
         </div>
         {/*Grafica CO2*/}
         <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '14px', boxShadow: '0 2px 4px rgba(0,0,0,0.02)' }}>
-          <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0 0 16px 0' }}>Temperatura</h3>
+          <h3 style={{ fontSize: '16px', fontWeight: 'bold', margin: '0 0 16px 0' }}>Concentración de CO₂</h3>
           <div style={{ width: '100%', height: 260 }}>
             <ResponsiveContainer>
               <LineChart data={datosClima}>
@@ -195,7 +195,7 @@ function App() {
                 <YAxis domain={['auto', 'auto']} tick={{fontSize: 11}} stroke="#a0aec0" />
                 <Tooltip />
                 <Legend verticalAlign="top" height={32}/>
-                <Line type="monotone" dataKey="co2_inf" name="Co2" stroke="#e53e3e" strokeWidth={2.5} dot={false} />
+                <Line type="monotone" dataKey="co2_inf" name="CO₂ Interior" stroke="#319795" strokeWidth={2.5} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </div>
