@@ -111,10 +111,10 @@ struct RegistroCompletoHistorial {
     float factor_potencia;
 
     // Actuadores (Salidas)
-    int vent_lateral;
-    int vent_superior;
-    int vent_co2;
-    int luz;
+    int pwm_vent_lateral;
+    int pwm_vent_superior;
+    int pwm_vent_co2;
+    int pwm_luz;
     int pwm_auxiliar;
     bool humidificador;
     bool compresor;
@@ -618,10 +618,10 @@ void loop() {
             bufferCultivo[contadorLecturas].factor_potencia = pzem_pf;
 
             // Almacenar Actuadores
-            bufferCultivo[contadorLecturas].vent_lateral   = pwm_vent_lateral;
-            bufferCultivo[contadorLecturas].vent_superior  = pwm_vent_superior;
-            bufferCultivo[contadorLecturas].vent_co2       = pwm_vent_co2;
-            bufferCultivo[contadorLecturas].luz            = pwm_luz;
+            bufferCultivo[contadorLecturas].pwm_vent_lateral   = pwm_vent_lateral;
+            bufferCultivo[contadorLecturas].pwm_vent_superior  = pwm_vent_superior;
+            bufferCultivo[contadorLecturas].pwm_vent_co2       = pwm_vent_co2;
+            bufferCultivo[contadorLecturas].pwm_luz            = pwm_luz;
             bufferCultivo[contadorLecturas].pwm_auxiliar   = pwm_aux;
             bufferCultivo[contadorLecturas].humidificador  = estado_humidificador;
             bufferCultivo[contadorLecturas].compresor      = estado_compresor;

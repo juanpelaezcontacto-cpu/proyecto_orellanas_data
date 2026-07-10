@@ -83,6 +83,15 @@ function App() {
   const setpointVigente = ultimoEstado.setpoint_temp !== undefined ? ultimoEstado.setpoint_temp : 23.0;
   const HISTERESIS = 2.0; // Sincronizado con tu constante estándar del firmware
 
+  // OBTENER SETPOINT VIGENTE (Dinámico del hardware, fallback a 20.0 si no hay red)
+  const setpointVigente = ultimoEstado.setpoint_temp !== undefined ? ultimoEstado.setpoint_temp : 20.0;
+  const HISTERESIS = 2.0; // Sincronizado con tu constante estándar del firmware
+
+  // NUEVO: Límites basados en el estudio biológico de fructificación (±2°C de tolerancia)
+  const DELTA_BIOLOGICO = 2.0;
+  const limiteMinBiologico = setpointVigente - DELTA_BIOLOGICO;
+  const limiteMaxBiologico = setpointVigente + DELTA_BIOLOGICO;
+
   // SOLUCIÓN AL JOIN FRÁGIL: Emparejar por est.created_at truncado o exacto, no por índice
   const datosMaquinaria = historialEstado.map(est => {
     // Buscar la lectura de clima que más se aproxime o coincida en timestamp exacto
@@ -168,6 +177,7 @@ function App() {
           </section>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '20px', marginBottom: '20px' }}>
+            {/* Gráfica de Temperatura limpia sin compresor */}
             <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Historial Temperatura (°C)</h3>
               <div style={{ width: '100%', height: 240 }}>
@@ -175,16 +185,32 @@ function App() {
                   <LineChart data={datosClima}>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#edf2f7" />
                     <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
-                    <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} stroke="#718096" />
+                    <YAxis domain={[12, 30]} tick={{fontSize: 10}} stroke="#718096" /> {/* Ajustado el dominio para dar aire visual a las líneas */}
                     <Tooltip contentStyle={{ fontSize: '12px' }} />
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
                     
-                    {/* BUG REAL #1 SOLUCIONADO: Uso correcto de la API horizontal de Recharts enlazada al setpoint extraído de estado_sistema */}
+                    {/* Línea Central: Setpoint Objetivo */}
                     <ReferenceLine 
                       y={setpointVigente} 
                       stroke="#3182ce" 
                       strokeDasharray="4 4" 
-                      label={{ value: `Setpoint (${setpointVigente}°C)`, fill: '#3182ce', fontSize: 10, position: 'insideTopLeft' }} 
+                      label={{ value: `Target (${setpointVigente}°C)`, fill: '#3182ce', fontSize: 10, position: 'insideTopLeft' }} 
+                    />
+
+                    {/* LÍNEA NUEVA: Límite Máximo Biológico */}
+                    <ReferenceLine 
+                      y={limiteMaxBiologico} 
+                      stroke="#e53e3e" 
+                      strokeDasharray="3 3" 
+                      label={{ value: `Máx Biológico (${limiteMaxBiologico}°C)`, fill: '#e53e3e', fontSize: 9, position: 'insideTopRight' }} 
+                    />
+
+                    {/* LÍNEA NUEVA: Límite Mínimo Biológico */}
+                    <ReferenceLine 
+                      y={limiteMinBiologico} 
+                      stroke="#ed8936" 
+                      strokeDasharray="3 3" 
+                      label={{ value: `Mín Biológico (${limiteMinBiologico}°C)`, fill: '#ed8936', fontSize: 9, position: 'insideBottomRight' }} 
                     />
 
                     <Line type="natural" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2} dot={false} />
