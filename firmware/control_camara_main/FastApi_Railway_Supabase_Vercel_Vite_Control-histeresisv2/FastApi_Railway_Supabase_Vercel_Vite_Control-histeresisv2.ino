@@ -344,8 +344,10 @@ void gestionarVentiladoresInteligentes() {
   
   // CASO A: Si el compresor está encendido, los ventiladores TIENEN que soplar al 100%
   if (estado_compresor == 1) {
-    ledcWrite(vent_lateral, 255);  // Ajusta a 255 si tu resolución PWM es de 8-bits
-    ledcWrite(vent_superior, 255);
+    pwm_vent_lateral = 255;
+    pwm_vent_superior= 255;
+    ledcWrite(vent_lateral, pwm_vent_lateral);  // Ajusta a 255 si tu resolución PWM es de 8-bits
+    ledcWrite(vent_superior, pwm_vent_superior);
     cronometro_recirculacion = millis(); // Resetea el timer de CO2 para que no se solape
     return; // Sale de la función, no necesita evaluar nada más
   }
@@ -353,8 +355,10 @@ void gestionarVentiladoresInteligentes() {
   // CASO B: El compresor se acaba de apagar. Mantenemos ventiladores encendidos por FRÍO RESIDUAL
   // POST_ENFRIAMIENTO equivale a 180000 ms (3 minutos)
   if (estado_compresor == 0 && (millis() - tiempo_ultimo_apagado < POST_ENFRIAMIENTO)) {
-    ledcWrite(vent_lateral, 255);  // Siguen soplando para exprimir el hielo del radiador
-    ledcWrite(vent_superior, 255);
+    pwm_vent_lateral = 255;
+    pwm_vent_superior= 255;
+    ledcWrite(vent_lateral, pwm_vent_lateral);  // Ajusta a 255 si tu resolución PWM es de 8-bits
+    ledcWrite(vent_superior, pwm_vent_superior);
     cronometro_recirculacion = millis(); // Sigue reseteando el timer de CO2
     return; 
   }
@@ -365,14 +369,18 @@ void gestionarVentiladoresInteligentes() {
 
   // DURACION_RECIRCUILACION = 120000 ms (2 minutos)
   if (tiempo_desde_ultimo_ciclo_recirculacion < DURACION_RECIRCULACION) {
-    ledcWrite(vent_lateral, 255);  // Enciende 2 minutos para homogeneizar el ambiente
-    ledcWrite(vent_superior, 255);
+    pwm_vent_lateral = 255;
+    pwm_vent_superior= 255;
+    ledcWrite(vent_lateral, pwm_vent_lateral);  // Enciende 2 minutos para homogeneizar el ambiente
+    ledcWrite(vent_superior, pwm_vent_superior);
   } 
   // INTERVALO_CO2 = 900000 ms (15 minutos)
   else if (tiempo_desde_ultimo_ciclo_recirculacion >= DURACION_RECIRCULACION && tiempo_desde_ultimo_ciclo_recirculacion < INTERVALO_RECIRCULACION) {
     // Ya pasaron los 2 minutos de ráfaga, apagamos para que no se destruya la humedad de la cámara
-    ledcWrite(vent_lateral, 0);  
-    ledcWrite(vent_superior, 0);
+    pwm_vent_lateral = 0;
+    pwm_vent_superior= 0;
+    ledcWrite(vent_lateral, pwm_vent_lateral);  
+    ledcWrite(vent_superior, pwm_vent_superior);
   } 
   else {
     // Ya pasaron los 15 minutos de aire estancado, reiniciamos el conteo para volver a encender
@@ -495,10 +503,10 @@ void enviarRafagaANube() {
         obj["frecuencia_hz"]   = bufferCultivo[i].frecuencia_hz;
         obj["factor_potencia"] = bufferCultivo[i].factor_potencia;
 
-        obj["vent_lateral"]   = bufferCultivo[i].vent_lateral;
-        obj["vent_superior"]  = bufferCultivo[i].vent_superior;
-        obj["vent_co2"]       = bufferCultivo[i].vent_co2;
-        obj["luz"]            = bufferCultivo[i].luz;
+        obj["vent_lateral"]   = bufferCultivo[i].pwm_vent_lateral;
+        obj["vent_superior"]  = bufferCultivo[i].pwm_vent_superior;
+        obj["vent_co2"]       = bufferCultivo[i].pwm_vent_co2;
+        obj["luz"]            = bufferCultivo[i].pwm_luz;
         obj["pwm_auxiliar"]   = bufferCultivo[i].pwm_auxiliar;
         obj["humidificador"]  = bufferCultivo[i].humidificador;
         obj["compresor"]      = bufferCultivo[i].compresor;
