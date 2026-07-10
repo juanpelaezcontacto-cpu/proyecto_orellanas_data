@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from typing import Optional, List
+import asyncio
 
 # Inicializar la aplicación web
 app = FastAPI(
