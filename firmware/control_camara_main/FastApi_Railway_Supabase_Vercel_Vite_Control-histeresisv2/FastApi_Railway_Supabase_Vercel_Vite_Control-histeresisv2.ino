@@ -45,7 +45,7 @@ SHT4x_7semi sht2;                   // T/H Exterior (entrada de aire)
 SensirionI2cScd4x scd;              // CO2/T/H interior inferior
 Adafruit_MAX31865 thermo(PIN_CS);   // PT100 compresor
 const int Puerta = 27;              // Final carrera puerta en GPIO 27
-int estadoPuerta = 0;               //0 = Cerrada, 1 = Abierta
+int estado_Puerta = 0;               //0 = Cerrada, 1 = Abierta
 HardwareSerial PZEMSerial(2);       //Voy a crear un objeto de comunicación llamado PZEMSerial que va a utilizar el periférico físico número 2 (UART2) del chip
 PZEM004Tv30 pzem(PZEMSerial, RXD2, TXD2);  //canal, receptor y transmisor
 
@@ -120,6 +120,7 @@ struct RegistroCompletoHistorial {
     bool compresor;
     bool compresor_disponible;
     long tiempo_ciclo_compresor;
+    float setpoint_temp;
 }; 
 // EL BUFFER EN MEMORIA RAM ---
 RegistroCompletoHistorial bufferCultivo[MAX_LECTURAS];
@@ -136,7 +137,7 @@ bool estado_humidificador = 0;
 const int compresor       = 33;
 // ================= Seguridad del Compresor =================
 bool estado_compresor     = 0;
-const unsigned long tiempo_min_apagado = 180000; //Segundos. 3 minutos de protección
+const unsigned long tiempo_min_apagado = 420000; //Segundos. 3 minutos de protección
 unsigned long tiempo_ultimo_apagado = -tiempo_min_apagado;
 int compresor_disponible = 1; // 1 = Listo, 0 = Bloqueado
 long tiempo_restante_ciclo = 0; // Segundos que faltan para poder encender compresor
@@ -173,27 +174,28 @@ int pwm_auxiliar = 0;
 JsonDocument doc; // O StaticJsonDocument / DynamicJsonDocument
 
 // Calibración basada en datos empíricos de caracterización
-const float SETPOINT_TEMP = 23.0;       // Centro de tu zona de confort biológico
-const float HISTERESIS = 2.0;           // Permite subir hasta 25.0°C antes de encender
-const float ANTICIPACION_CORTE = 1.0;   // Apaga el compresor 1°C antes del setpoint para absorber el overshoot
-const unsigned long TIEMPO_MIN_APAGADO = 420000; // 7 minutos (Tus datos muestran que la temperatura sube muy lento, aprovechemos a proteger al máximo el motor)
+float setpoint_temp = 20.0;                   // Centro de tu zona de confort biológico
+const float HISTERESIS = 2.0;                       // Permite subir hasta 25.0°C antes de encender
+const float ANTICIPACION_CORTE = 1.0;               // Apaga el compresor 1°C antes del setpoint para absorber el overshoot
+//const unsigned long TIEMPO_MIN_APAGADO = 420000;    // 7 minutos (Tus datos muestran que la temperatura sube muy lento, aprovechemos a proteger al máximo el motor)
 // ==========================================================
 // NUEVO FILTRO DE TEMPERATURA (NOMBRES ÚNICOS PARA EVITAR COLISIÓN)
 // ==========================================================
-const int MAX_MUESTRAS_TEMP = 10;                // Buffer de 10 muestras para control térmico
-float lecturas_historicas_temp[MAX_MUESTRAS_TEMP]; // Arreglo independiente
-int indice_lectura_temp = 0;                     // Índice independiente
-float temp_interior_promedio = 0.0;             // Variable global limpia
+const int MAX_MUESTRAS_TEMP = 10;                   // Buffer de 10 muestras para control térmico
+float lecturas_historicas_temp[MAX_MUESTRAS_TEMP];  // Arreglo independiente
+int indice_lectura_temp = 0;                        // Índice independiente
+float temp_interior_promedio = 0.0;                 // Variable global limpia
 // ==========================================================
 // CONFIGURACIÓN DE TIEMPOS DE RECIRCULACIÓN INTERNA
 // ==========================================================
-const unsigned long POST_ENFRIAMIENTO = 180000;     // 3 min de aire residual tras apagar compresor (ms)
+const unsigned long POST_ENFRIAMIENTO = 180000;       // 3 min de aire residual tras apagar compresor (ms)
 const unsigned long INTERVALO_RECIRCULACION = 900000; // Ciclo cíclico cada 15 minutos (ms)
 const unsigned long DURACION_RECIRCULACION = 120000;  // Duración de la ráfaga de 2 minutos (ms)
 
 // Cronómetros y banderas globales para recirculación
 unsigned long cronometro_recirculacion = 0;
 unsigned long tiempo_cambio_ventiladores = 0;
+bool permiso_nube_compresor = true;
 
 void setup() {
   //Inicialización humidificador
@@ -311,29 +313,27 @@ void calcularTemperaturaAmbiente(float t2, float t_inf) {
 }
 
 void controlarTemperaturaCultivo() {
-  float limite_superior = SETPOINT_TEMP + HISTERESIS;             
-  float limite_inferior_anticipado = SETPOINT_TEMP + ANTICIPACION_CORTE; 
+  float limite_superior = setpoint_temp + HISTERESIS;             
+  float limite_inferior_anticipado = setpoint_temp + ANTICIPACION_CORTE; 
 
-  // ENCENDIDO: Solo si se requiere enfriar, el motor está apagado, el temporizador dio permiso Y el bloque no está hirviendo
+  // ENCENDIDO: Añadimos la condicional del permiso de la nube
   if (temp_interior_promedio >= limite_superior && estado_compresor == 0) {
-    if (compresor_disponible && temp_comp <= 55.0) { // Asegúrate de que tu variable global se llame 'temp_comp'
+    if (permiso_nube_compresor && compresor_disponible && temp_comp <= 55.0) { 
       estado_compresor = 1;
-      digitalWrite(compresor, HIGH); // Única acción física sobre el relé
-      Serial.println("❄️ Compresor encendido por alta temperatura. (Ventiladores delegados a la capa inteligente).");
+      digitalWrite(compresor, HIGH); 
+      Serial.println("❄️ Compresor encendido por alta temperatura e instrucción de la nube.");
     } else if (!compresor_disponible) {
-      Serial.print("⏳ Presión alta o motor caliente. Bloqueo activo. Tiempo restante: ");
-      Serial.print(tiempo_restante_ciclo);
-      Serial.println("s");
+      Serial.printf("⏳ Motor bloqueado por presiones. Tiempo restante: %ld s\n", tiempo_restante_ciclo);
     }
   }
   
-  // APAGADO ANTICIPADO
-  if (temp_interior_promedio <= limite_inferior_anticipado && estado_compresor == 1) {
+  // APAGADO: Apaga si está frío O si desde la web apagaron el interruptor general (permiso_nube_compresor == false)
+  if ((temp_interior_promedio <= limite_inferior_anticipado || !permiso_nube_compresor) && estado_compresor == 1) {
     estado_compresor = 0;
-    digitalWrite(compresor, LOW); // Apagado físico inmediato del relé
+    digitalWrite(compresor, LOW); 
     tiempo_ultimo_apagado = millis();
     tiempo_cambio_ventiladores = millis(); 
-    Serial.println("💤 Compresor cortado de forma anticipada. Pasando control de flujo de aire al post-enfriamiento.");
+    Serial.println("💤 Compresor cortado (por cumplimiento de setpoint o comando de apagado web).");
   }
 }
 
@@ -431,7 +431,7 @@ unsigned long tiempoActual = millis();   // TEMPORIZADOR NO BLOQUEANTE PARA LA T
     if (!sht2.readTemperatureHumidity(t2,h2))       { err_sht2 = 1; } 
     else{err_sht2 = 0;}
     // ======== Puerta ======== Si digitalRead da LOW (0), la puerta está cerrada (toca GND).
-    estadoPuerta = !digitalRead(Puerta); //Al poner el signo "!", estadoPuerta guardará un 1 si está abierta y 0 si está cerrada.
+    estado_Puerta = !digitalRead(Puerta); //Al poner el signo "!", estado_Puerta guardará un 1 si está abierta y 0 si está cerrada.
     // ======== LECTURA FIABLE PZEM-004T Conexión 100A ======== 
     // El transformador de corriente tiene 3 vueltas de cable.
 
@@ -504,6 +504,7 @@ void enviarRafagaANube() {
         obj["compresor"]      = bufferCultivo[i].compresor;
         obj["compresor_disponible"] = bufferCultivo[i].compresor_disponible;
         obj["tiempo_ciclo_compresor"] = bufferCultivo[i].tiempo_ciclo_compresor;
+        obj["setpoint_temp"] = bufferCultivo[i].setpoint_temp;
     }
 
     String requestBody;
@@ -526,23 +527,32 @@ void enviarRafagaANube() {
         pwm_vent_co2      = docRespuesta["set_vent_co2"];
         pwm_luz           = docRespuesta["set_luz"];
         estado_humidificador     = docRespuesta["set_humidificador"];
-        estado_compresor         = docRespuesta["set_compresor"];
+        // Guardamos la intención de la nube en una variable nueva de control (debes declararla como bool global)
+        permiso_nube_compresor = docRespuesta["set_compresor"];
+        //estado_compresor         = docRespuesta["set_compresor"];
+        setpoint_temp         = docRespuesta["setpoint_temp"];
         // 4. ¡CRÍTICO! Forzar el cambio físico en los pines GPIO usando ledcWrite
         ledcWrite(vent_lateral, pwm_vent_lateral);
         ledcWrite(vent_superior, pwm_vent_superior);
         ledcWrite(vent_co2, pwm_vent_co2);
         ledcWrite(luz, pwm_luz);
         digitalWrite(humidificador, estado_humidificador ? HIGH : LOW);
+        // Si la nube manda a encender (1), pero el temporizador local dice que NO está disponible (0), 
+        // ignoramos el comando de la nube y lo forzamos a apagarse por seguridad.
+        /*if (estado_compresor == 1 && compresor_disponible == 0) {
+            estado_compresor = 0; 
+            Serial.println("⚠️ Nube intentó encender el compresor, pero se bloqueó por protección de presiones/histéresis.");
+        }
         digitalWrite(compresor, estado_compresor ? HIGH : LOW);
-        
+        */
         // 4. Monitor de diagnóstico completo en la consola serie
         Serial.println("\n--- 📥 COMANDOS RECIBIDOS DESDE LA NUBE ---");
         Serial.printf("🌀 Vent. Lateral  : %d / 255\n", pwm_vent_lateral);
         Serial.printf("🌀 Vent. Superior : %d / 255\n", pwm_vent_superior);
         Serial.printf("🫁 Vent. CO2      : %d / 255\n", pwm_vent_co2);
         Serial.printf("💡 Intensidad Luz : %d / 255\n", pwm_luz);
-        Serial.printf("💨 Humidificador  : %s\n", humidificador ? "ENCENDIDO" : "APAGADO");
-        Serial.printf("❄️ Compresor      : %s\n", compresor ? "ENCENDIDO" : "APAGADO");
+        Serial.printf("💨 Humidificador  : %s\n", estado_humidificador ? "ENCENDIDO" : "APAGADO");
+        Serial.printf("❄️ Compresor      : %s\n", estado_compresor ? "ENCENDIDO" : "APAGADO");
         Serial.println("-------------------------------------------\n");
         // 5. Vaciar el buffer para los próximos 5 minutos
         contadorLecturas = 0;
@@ -552,17 +562,14 @@ void enviarRafagaANube() {
     http.end();
 }
 
-void ejecutarControlLocal() {
-    // Aquí adentro pones tu lógica matemática o de umbrales para activar relés y PWMs.
-    // Esto se ejecutará de manera fluida cada 5 segundos.
-}
+
 
 
 void loop() {
     // 1. Adquisición de Datos y Control Local Obligatorio
     leersensores(); 
     actualizarCicloCompresor();
-    calcularTemperaturaAmbiente(t2, t_inf);
+    //calcularTemperaturaAmbiente(t2, t_inf);
     controlarTemperaturaCultivo();
     gestionarVentiladoresInteligentes();
 
@@ -592,7 +599,7 @@ void loop() {
             bufferCultivo[contadorLecturas].temp_int_inf = t_inf;
             bufferCultivo[contadorLecturas].hum_int_inf  = h_inf;
             bufferCultivo[contadorLecturas].resistencia  = resistencia;
-            bufferCultivo[contadorLecturas].puerta       = puerta;
+            bufferCultivo[contadorLecturas].puerta       = estado_Puerta;
 
             // Almacenar Eléctrico
             bufferCultivo[contadorLecturas].voltaje         = pzem_voltaje;
@@ -612,12 +619,15 @@ void loop() {
             bufferCultivo[contadorLecturas].compresor      = estado_compresor;
             bufferCultivo[contadorLecturas].compresor_disponible   = compresor_disponible;
             bufferCultivo[contadorLecturas].tiempo_ciclo_compresor = tiempo_restante_ciclo;
+            bufferCultivo[contadorLecturas].setpoint_temp = setpoint_temp;
 
             contadorLecturas++;
             Serial.printf("📦 Muestra completa guardada en buffer [%d/%d]\n", contadorLecturas, MAX_LECTURAS);
         }
+        if (err_sht2 == 0 && err_scd == 0) { // Validar que las lecturas sean exitosas
+            calcularTemperaturaAmbiente(t2, t_inf);
+        }
     }
-
     // =====================================================================
     // TAREA 2: ENVIAR RÁFAGA AUTOMÁTICA CUANDO EL BUFFER SE LLENE (60 Muestras)
     // =====================================================================
@@ -625,10 +635,10 @@ void loop() {
         Serial.println("🚩 Buffer lleno (5 minutos acumulados). Iniciando transferencia...");
         
         if (WiFi.status() == WL_CONNECTED) {
-            enviarRafagaANube();
+            enviarRafagaANube(); // <-- El borrado de contadorLecturas ocurre ADENTRO, solo si httpResponseCode > 0
         } else {
-            Serial.println("⚠️ No se puede transmitir: Conexión Wi-Fi perdida. Reintentando en el próximo ciclo.");
-            // No reseteamos contadorLecturas para no perder la información en RAM
+            Serial.println("⚠️ No se puede transmitir: Conexión Wi-Fi perdida. Conservando datos en RAM.");
+            // NO se pone contadorLecturas = 0 aquí. El buffer se mantiene lleno y reintentará en el próximo loop.
         }
     }
 

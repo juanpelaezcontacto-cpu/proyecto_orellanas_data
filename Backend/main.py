@@ -85,26 +85,33 @@ class PaqueteRafaga(BaseModel):
 
 @app.post("/telemetria")
 async def recibir_datos(data: PaqueteRafaga): 
-    # Obtener el tiempo exacto de Colombia
-    hora_actual = datetime.now(ZoneInfo("America/Bogota")).isoformat()
-    """Función auxiliar que se ejecuta en su propio hilo para no congelar el Wi-Fi"""
+    # Valores por defecto de contingencia (Fallback seguro en caso de error)
+    # Se inicializan asumiendo un estado neutro y seguro para el cultivo
+    valores_fallback = {
+        "status": "fallback",
+        "set_compresor": 1,         # Arranca en True para control local por defecto si la nube falla
+        "set_humidificador": 0,
+        "set_vent_co2": 0,
+        "set_vent_lateral": 0,
+        "set_vent_superior": 0,
+        "set_luz": 0,
+        "setpoint_temp": 20.0       # Tu zona de confort biológico base
+    }
+
     try:
-        # 2. SEPARACIÓN MODULAR DE DATOS (Alineado con tus 3 tablas en Supabase)
         lista_sensores = []
         lista_energia = []
         lista_estado = []
 
         total_lecturas = len(data.historial_lecturas)
-        # Obtener la hora actual en UTC con zona horaria explícita
         ahora_utc = datetime.now(ZoneInfo("UTC"))
         
-        # Iteramos sobre cada muestra tomada en el tiempo (reconstrucción del índice temporal)
         for i, lectura in enumerate(data.historial_lecturas):
-            # Calculamos los segundos hacia atrás con base en muestras tomadas cada 5 segundos
+            # NOTA DE TIMING: Sigue siendo un cálculo inverso aproximado, pero garantizamos que 
+            # las estructuras locales se guarden bajo la misma consistencia temporal en Supabase.
             segundos_atras = (total_lecturas - 1 - i) * 5
             marca_tiempo = (ahora_utc - timedelta(seconds=segundos_atras)).isoformat()
             
-            # 1. Preparar datos para tabla 'lecturas_sensores'
             lista_sensores.append({
                 "created_at": marca_tiempo,
                 "temp_comp": lectura.temp_comp,
@@ -117,10 +124,9 @@ async def recibir_datos(data: PaqueteRafaga):
                 "co2_inf": lectura.co2_inf
             })
             
-            # 2. Preparar datos para tabla 'monitoreo_energetico'
             lista_energia.append({
                 "created_at": marca_tiempo,
-                "voltaje": lectura.voltaje,                  
+                "voltaje": lectura.voltaje if lectura.voltaje is not None else 0.0,                  
                 "corriente_neta": lectura.corriente_neta,    
                 "potencia_w": lectura.potencia_w,            
                 "energia_kwh": lectura.energia_kwh,          
@@ -129,7 +135,6 @@ async def recibir_datos(data: PaqueteRafaga):
                 "resistencia": lectura.resistencia
             })
 
-            # 3. Preparar datos históricos para la tabla 'estado_sistema' (Diagnóstico + Actuadores)
             lista_estado.append({
                 "created_at": marca_tiempo,
                 "err_max": lectura.err_max,
@@ -149,52 +154,57 @@ async def recibir_datos(data: PaqueteRafaga):
                 "setpoint_temp": lectura.setpoint_temp
             })
 
-        # 1. Intentar insertar sensores (Tabla principal)
-        try:
-            if lista_sensores:
-                supabase.table("lecturas_sensores").insert(lista_sensores).execute()
-        except Exception as e_sens:
-            print(f"❌ Error específico en tabla lecturas_sensores: {e_sens}")
+        # SOLUCIÓN DE DEUDA TÉCNICA: Sacar operaciones bloqueantes síncronas del event loop de FastAPI
+        # Correr los inserts de red en un ejecutor de hilos paralelo usando asyncio.to_thread
+        if lista_sensores:
+            try:
+                await asyncio.to_thread(supabase.table("lecturas_sensores").insert(lista_sensores).execute)
+            except Exception as e_sens:
+                print(f"❌ Error específico en tabla lecturas_sensores: {e_sens}")
 
-        # 2. Intentar insertar energía (Tratamiento de Nulos del PZEM)
-        try:
-            if lista_energia:
-                # Si los valores son 0 o None, aseguramos que se guarden de forma que Postgres no proteste
-                for fila in lista_energia:
-                    if fila.get("voltaje") is None:
-                        fila["voltaje"] = 0.0
-                supabase.table("monitoreo_energetico").insert(lista_energia).execute()
-        except Exception as e_energ:
-            print(f"❌ Error específico en tabla monitoreo_energetico: {e_energ}")
+        if lista_energia:
+            try:
+                await asyncio.to_thread(supabase.table("monitoreo_energetico").insert(lista_energia).execute)
+            except Exception as e_energ:
+                print(f"❌ Error específico en tabla monitoreo_energetico: {e_energ}")
 
-        # 3. Intentar insertar estado (Aislamiento de errores)
-        try:
-            if lista_estado:
-                supabase.table("estado_sistema").insert(lista_estado).execute()
-        except Exception as e_est:
-            print(f"❌ Error específico en tabla estado_sistema: {e_est}")
+        if lista_estado:
+            try:
+                await asyncio.to_thread(supabase.table("estado_sistema").insert(lista_estado).execute)
+            except Exception as e_est:
+                print(f"❌ Error específico en tabla estado_sistema: {e_est}")
         
-        # 5. Consultar y retornar las directrices de control desde la nube
-        res_control = supabase.table("controles").select("*").eq("id", 1).execute()
-        if res_control.data:
-            control = res_control.data[0]
-            return {
-                "status": "success",
-                "set_compresor": 1 if control.get("set_compresor") else 0,
-                "set_humidificador": 1 if control.get("set_humidificador") else 0,
-                "set_vent_co2": control.get("set_vent_co2", 0),
-                "set_vent_lateral": control.get("set_vent_lateral", 0),
-                "set_vent_superior": control.get("set_vent_superior", 0),
-                "set_luz": control.get("set_luz", 0),
-                "setpoint_temp": control.get("setpoint_temp") if control.get("setpoint_temp") is not None else 23.0
-            }
+        # BUG 1 CORREGIDO: Aislar la consulta de controles en su propio bloque try/except 
+        # para que un fallo en Supabase no tumbe la petición ni retorne un HTTP 500 genérico.
+        try:
+            res_control = await asyncio.to_thread(supabase.table("controles").select("*").eq("id", 1).execute)
+            
+            # BUG 2 CORREGIDO: Si la consulta es exitosa pero la data viene vacía (fila borrada),
+            # salta explícitamente al bloque else/fallback para inyectar las llaves obligatorias.
+            if res_control.data and len(res_control.data) > 0:
+                control = res_control.data[0]
+                return {
+                    "status": "success",
+                    "set_compresor": 1 if control.get("set_compresor") else 0,
+                    "set_humidificador": 1 if control.get("set_humidificador") else 0,
+                    "set_vent_co2": control.get("set_vent_co2", 0),
+                    "set_vent_lateral": control.get("set_vent_lateral", 0),
+                    "set_vent_superior": control.get("set_vent_superior", 0),
+                    "set_luz": control.get("set_luz", 0),
+                    "setpoint_temp": control.get("setpoint_temp") if control.get("setpoint_temp") is not None else 20.0
+                }
+            else:
+                print("⚠️ Fila id=1 no encontrada en la tabla controles. Aplicando valores seguros por defecto.")
+                return valores_fallback
 
-    
-        # Finalmente, le respondemos a la ESP32 que todo salió bien
-        return {"status": "synchronized", "msg": "No hay cambios de control activos."}
+        except Exception as e_control:
+            print(f"❌ Error al consultar la tabla de controles (Supabase caído/timeout): {e_control}")
+            # Retornamos el diccionario completo con códigos seguros para que el hardware resista autónomamente
+            return valores_fallback
 
     except Exception as e:
-        print(f"⚠️ Error al procesar o subir datos a Supabase: {e}")
+        # Este bloque ahora solo atrapará fallos catastróficos de parsing locales internos de Python
+        print(f"⚠️ Falla crítica estructural en el endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
