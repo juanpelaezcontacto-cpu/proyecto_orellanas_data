@@ -145,7 +145,8 @@ async def recibir_datos(data: PaqueteRafaga):
                 "humidificador": 1 if lectura.humidificador else 0, 
                 "compresor": 1 if lectura.compresor else 0,         
                 "puerta": lectura.puerta,                    
-                "compresor_disponible": 1 if lectura.compresor_disponible else 0
+                "compresor_disponible": 1 if lectura.compresor_disponible else 0,
+                "setpoint_temp": lectura.setpoint_temp
             })
 
         # 1. Intentar insertar sensores (Tabla principal)
@@ -185,7 +186,7 @@ async def recibir_datos(data: PaqueteRafaga):
                 "set_vent_lateral": control.get("set_vent_lateral", 0),
                 "set_vent_superior": control.get("set_vent_superior", 0),
                 "set_luz": control.get("set_luz", 0),
-                "setpoint_temp": control.get("setpoint_temp", 23.0)
+                "setpoint_temp": control.get("setpoint_temp") if control.get("setpoint_temp") is not None else 23.0
             }
 
     

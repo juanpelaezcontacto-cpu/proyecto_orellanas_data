@@ -173,7 +173,7 @@ function App() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(450px, 1fr))', gap: '20px', marginBottom: '20px' }}>
             {/* Gráfica de Temperatura limpia sin compresor */}
             <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-              <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Historial Térmico Coordenado (°C)</h3>
+              <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', color: '#1a202c' }}>Historial Temperatura (°C)</h3>
               <div style={{ width: '100%', height: 240 }}>
                 <ResponsiveContainer>
                   <LineChart data={datosClima}>
@@ -182,8 +182,22 @@ function App() {
                     <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} stroke="#718096" />
                     <Tooltip contentStyle={{ fontSize: '12px' }} />
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
-                    <ReferenceLine y={20} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Mín', fill: '#e53e3e', fontSize: 9 }} />
-                    <ReferenceLine y={28} stroke="#feb2b2" strokeDasharray="3 3" label={{ value: 'Máx', fill: '#e53e3e', fontSize: 9 }} />
+                    
+                    <ReferenceLine 
+                      dataKey="setpoint_temp" 
+                      stroke="#3182ce" 
+                      strokeDasharray="4 4" 
+                      label={{ value: 'Setpoint', fill: '#3182ce', fontSize: 10, position: 'insideTopLeft' }} 
+/>
+                    
+                    {/* 👈 ESTA ES LA NUEVA LÍNEA DINÁMICA DEL SETPOINT
+                    <ReferenceLine 
+                      y={datosClima && datosClima.length > 0 ? datosClima[datosClima.length - 1]?.setpoint_temp : 23.0} 
+                      stroke="#3182ce" 
+                      strokeDasharray="4 4" 
+                      label={{ value: `Setpoint (${datosClima[datosClima.length - 1]?.setpoint_temp || 23.0}°C)`, fill: '#3182ce', fontSize: 10, position: 'insideTopLeft' }} 
+                    /> */}
+
                     <Line type="natural" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2} dot={false} />
                     <Line type="natural" dataKey="temp_int_sup" name="Sup." stroke="#ed8936" strokeWidth={2} dot={false} />
                     <Line type="natural" dataKey="temp_ext" name="Ext." stroke="#718096" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
