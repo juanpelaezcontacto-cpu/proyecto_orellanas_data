@@ -74,6 +74,7 @@ class RegistroCompletoHistorial(BaseModel):
     compresor: bool      
     compresor_disponible: bool
     tiempo_ciclo_compresor: int  
+    setpoint_temp: float        # nombrada igual a supabase, en c++ es SETPOINT_TEMP
 
 
 # MODELO PRINCIPAL: El contenedor que recibe la ráfaga cada 5 minutos
@@ -183,7 +184,8 @@ async def recibir_datos(data: PaqueteRafaga):
                 "set_vent_co2": control.get("set_vent_co2", 0),
                 "set_vent_lateral": control.get("set_vent_lateral", 0),
                 "set_vent_superior": control.get("set_vent_superior", 0),
-                "set_luz": control.get("set_luz", 0)
+                "set_luz": control.get("set_luz", 0),
+                "setpoint_temp": control.get("setpoint_temp", 23.0)
             }
 
     
