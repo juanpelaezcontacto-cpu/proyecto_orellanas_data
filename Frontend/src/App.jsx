@@ -102,10 +102,6 @@ function App() {
   const setpointVigente = ultimoEstado.setpoint_temp !== undefined ? ultimoEstado.setpoint_temp : 23.0;
   const HISTERESIS = 2.0; // Sincronizado con tu constante estándar del firmware
 
-  // OBTENER SETPOINT VIGENTE (Dinámico del hardware, fallback a 20.0 si no hay red)
-  const setpointVigente = ultimoEstado.setpoint_temp !== undefined ? ultimoEstado.setpoint_temp : 20.0;
-  const HISTERESIS = 2.0; // Sincronizado con tu constante estándar del firmware
-
   // NUEVO: Límites basados en el estudio biológico de fructificación (±2°C de tolerancia)
   const DELTA_BIOLOGICO = 2.0;
   // Obtener los parámetros biológicos teóricos seleccionados por el usuario
@@ -238,7 +234,7 @@ function App() {
               {/*<CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={80} maxOptimo={96} colorIcono="#3182ce" bgIcono="#ebf8ff" />*/}
               <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={humMinOptima} maxOptimo={humMaxOptima} colorIcono="#3182ce" bgIcono="#ebf8ff" />
               {/*<CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={80} maxOptimo={96} colorIcono="#805ad5" bgIcono="#faf5ff" />*/}
-              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Superior Inf." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={humMinOptima} maxOptimo={humMaxOptima} colorIcono="#3182ce" bgIcono="#ebf8ff" />
+              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={humMinOptima} maxOptimo={humMaxOptima} colorIcono="#3182ce" bgIcono="#ebf8ff" />
               <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Exterior" valor={`${ultimaLecturaClima.temp_ext}°C`} colorIcono="#4a5568" bgIcono="#edf2f7" />
               {/*<CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={800} colorIcono="#319795" bgIcono="#e6fffa" />*/}
               <CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={co2MaxOptimo} colorIcono="#319795" bgIcono="#e6fffa" />
@@ -406,7 +402,7 @@ function App() {
                 {['err_max', 'err_sht1', 'err_sht2', 'err_scd', 'err_pzem'].map((sensor) => {
                   const tieneError = ultimoEstado[sensor] > 0;
                   return (
-                    <div key={sensor} style={{ display: 'flex', alignItems: 'center', justifyBetween: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: tieneError ? '#fff5f5' : '#f0fff4', border: tieneError ? '1px solid #feb2b2' : '1px solid #c6f6d5', fontSize: '12px' }}>
+                    <div key={sensor} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: tieneError ? '#fff5f5' : '#f0fff4', border: tieneError ? '1px solid #feb2b2' : '1px solid #c6f6d5', fontSize: '12px' }}>
                       <span style={{ fontWeight: '600', color: tieneError ? '#9b2c2c' : '#22543d', textTransform: 'uppercase' }}>{sensor.replace('err_', 'Sensor ')}</span>
                       {tieneError ? (
                         <span style={{ color: '#e53e3e', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}><AlertTriangle size={12}/> Falla ({ultimoEstado[sensor]})</span>
