@@ -18,6 +18,8 @@ function App() {
   const [cargando, setCargando] = useState(true);
   const [pestanaActiva, setPestanaActiva] = useState('cultivo');
   const [ultimaActualizacion, setUltimaActualizacion] = useState(null);
+  const [especie, setEspecie] = useState('orellana');
+  const [fase, setFase] = useState('fructificacion');
 
   // Función auxiliar para formatear timestamp ISO UTC a hora legible local de Colombia
   const formatearHoraLocal = (isoString) => {
@@ -29,6 +31,23 @@ function App() {
     }
   };
 
+  const MATRIZ_CULTIVO = {
+  orellana: {
+    nombre: "Orellana (Pleurotus ostreatus)",
+    fases: {
+      incubacion: { setpoint: 26.0, delta: 2.0, hum_min: 65, hum_max: 75, co2_max: 5000 },
+      fructificacion: { setpoint: 17.5, delta: 1.5, hum_min: 80, hum_max: 95, co2_max: 800 }
+    }
+  },
+  melena_leon: {
+    nombre: "Melena de León (Hericium erinaceus)",
+    fases: {
+      incubacion: { setpoint: 22.5, delta: 2.5, hum_min: 65, hum_max: 75, co2_max: 10000 },
+      fructificacion: { setpoint: 19.5, delta: 1.5, hum_min: 85, hum_max: 95, co2_max: 800 }
+    }
+  }
+};
+  
   const consultarTodo = async () => {
     try {
       setCargando(true);
@@ -89,8 +108,14 @@ function App() {
 
   // NUEVO: Límites basados en el estudio biológico de fructificación (±2°C de tolerancia)
   const DELTA_BIOLOGICO = 2.0;
-  const limiteMinBiologico = setpointVigente - DELTA_BIOLOGICO;
-  const limiteMaxBiologico = setpointVigente + DELTA_BIOLOGICO;
+  // Obtener los parámetros biológicos teóricos seleccionados por el usuario
+  const parametrosOptimos = MATRIZ_CULTIVO[especie].fases[fase];
+  // Los límites de la gráfica se vuelven dinámicos según la biología del hongo
+  const limiteMinBiologico = parametrosOptimos.setpoint - parametrosOptimos.delta;
+  const limiteMaxBiologico = parametrosOptimos.setpoint + parametrosOptimos.delta;
+  const humMinOptima = parametrosOptimos.hum_min;
+  const humMaxOptima = parametrosOptimos.hum_max;
+  const co2MaxOptimo = parametrosOptimos.co2_max;
 
   // SOLUCIÓN AL JOIN FRÁGIL: Emparejar por est.created_at truncado o exacto, no por índice
   const datosMaquinaria = historialEstado.map(est => {
@@ -161,18 +186,62 @@ function App() {
         <button style={estiloTab('diagnostico')} onClick={() => setPestanaActiva('diagnostico')}>Consola de Diagnóstico</button>
       </div>
 
+      {/* PANEL DE CONFIGURACIÓN DE ESPECIE Y FASE */}
+      <div style={{ 
+        backgroundColor: 'white', padding: '16px', borderRadius: '12px', 
+        border: '1px solid #e2e8f0', marginBottom: '24px', display: 'flex', gap: '20px', alignItems: 'center' 
+      }}>
+        <div>
+          <label style={{ fontSize: '12px', fontWeight: '600', color: '#4a5568', display: 'block', marginBottom: '6px' }}>Especie en Cámara:</label>
+          <select value={especie} onChange={(e) => setEspecie(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e0', fontSize: '14px', backgroundColor: '#f7fafc' }}>
+            <option value="orellana">Orellana (Seta Ostra)</option>
+            <option value="melena_leon">Melena de León</option>
+          </select>
+        </div>
+
+        <div>
+          <label style={{ fontSize: '12px', fontWeight: '600', color: '#4a5568', display: 'block', marginBottom: '6px' }}>Fase del Cultivo:</label>
+          <select value={fase} onChange={(e) => setFase(e.target.value)} style={{ padding: '8px 12px', borderRadius: '6px', border: '1px solid #cbd5e0', fontSize: '14px', backgroundColor: '#f7fafc' }}>
+            <option value="incubacion">Incubación (Crecimiento de Micelio)</option>
+            <option value="fructificacion">Fructificación (Producción de Setas)</option>
+          </select>
+        </div>
+        
+        <div style={{ marginLeft: 'auto', alignSelf: 'flex-end' }}>
+          <button 
+            onClick={async () => {
+              // Aquí actualizas Supabase en la tabla 'controles' para que la ESP32 se entere del nuevo setpoint objetivo
+              const { error } = await supabase
+                .from('controles')
+                .update({ setpoint_temp: parametrosOptimos.setpoint })
+                .eq('id', 1);
+              if (error) alert('Error al actualizar setpoint: ' + error.message);
+              else alert(`Sistema configurado para ${MATRIZ_CULTIVO[especie].nombre} en fase de ${fase}. Setpoint enviado: ${parametrosOptimos.setpoint}°C`);
+            }}
+            style={{ backgroundColor: '#2b6cb0', color: 'white', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+          >
+            Aplicar Parámetros al Hardware
+          </button>
+        </div>
+      </div>
+
       {/* VISTA GENERAL DEL CULTIVO */}
       {pestanaActiva === 'cultivo' && (
         <div>
           <section style={{ marginBottom: '24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
               {/* BUG REAL #2 SOLUCIONADO: Límites calculados dinámicamente según el Setpoint y la Histéresis */}
-              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Inf." valor={`${ultimaLecturaClima.temp_int_inf}°C`} valorNumerico={ultimaLecturaClima.temp_int_inf} minOptimo={setpointVigente - HISTERESIS} maxOptimo={setpointVigente + HISTERESIS} colorIcono="#e53e3e" bgIcono="#fff5f5" />
-              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={setpointVigente - HISTERESIS} maxOptimo={setpointVigente + HISTERESIS} colorIcono="#ed8936" bgIcono="#fffaf0" />
-              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={80} maxOptimo={96} colorIcono="#3182ce" bgIcono="#ebf8ff" />
-              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={80} maxOptimo={96} colorIcono="#805ad5" bgIcono="#faf5ff" />
+              {/*<CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Inf." valor={`${ultimaLecturaClima.temp_int_inf}°C`} valorNumerico={ultimaLecturaClima.temp_int_inf} minOptimo={setpointVigente - HISTERESIS} maxOptimo={setpointVigente + HISTERESIS} colorIcono="#e53e3e" bgIcono="#fff5f5" />*/}
+              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Inf." valor={`${ultimaLecturaClima.temp_int_inf}°C`} valorNumerico={ultimaLecturaClima.temp_int_inf} minOptimo={limiteMinBiologico} maxOptimo={limiteMaxBiologico} colorIcono="#e53e3e" bgIcono="#fff5f5" />
+              {/*<CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={setpointVigente - HISTERESIS} maxOptimo={setpointVigente + HISTERESIS} colorIcono="#ed8936" bgIcono="#fffaf0" />*/}
+              <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={limiteMinBiologico} maxOptimo={limiteMaxBiologico} colorIcono="#ed8936" bgIcono="#fffaf0" />
+              {/*<CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={80} maxOptimo={96} colorIcono="#3182ce" bgIcono="#ebf8ff" />*/}
+              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={humMinOptima} maxOptimo={humMaxOptima} colorIcono="#3182ce" bgIcono="#ebf8ff" />
+              {/*<CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={80} maxOptimo={96} colorIcono="#805ad5" bgIcono="#faf5ff" />*/}
+              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Superior Inf." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={humMinOptima} maxOptimo={humMaxOptima} colorIcono="#3182ce" bgIcono="#ebf8ff" />
               <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Exterior" valor={`${ultimaLecturaClima.temp_ext}°C`} colorIcono="#4a5568" bgIcono="#edf2f7" />
-              <CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={800} colorIcono="#319795" bgIcono="#e6fffa" />
+              {/*<CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={800} colorIcono="#319795" bgIcono="#e6fffa" />*/}
+              <CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={co2MaxOptimo} colorIcono="#319795" bgIcono="#e6fffa" />
             </div>
           </section>
 
