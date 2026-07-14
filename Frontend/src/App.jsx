@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { supabase } from './supabaseClient';
+//import { supabase } from './supabaseClient';
 import { 
   ResponsiveContainer, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
@@ -20,6 +20,8 @@ function App() {
   const [ultimaActualizacion, setUltimaActualizacion] = useState(null);
   const [especie, setEspecie] = useState('orellana');
   const [fase, setFase] = useState('fructificacion');
+  // URL definitiva de producción en Railway (Sin barra '/' al final)
+  const API_URL = "https://orellanas-backend-production.up.railway.app";
 
   const formatearHoraLocal = (isoString) => {
     try {
