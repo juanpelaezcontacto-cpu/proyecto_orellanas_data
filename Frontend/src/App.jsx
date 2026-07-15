@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Box, AppBar, Toolbar, Typography, Button, Container, Tab, Tabs } from '@mui/material';
 import { LayoutDashboard, Sliders, LogIn, LogOut } from 'lucide-react';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { TelemetryProvider } from './context/TelemetryContext'; // 👈 IMPORTANTE: Recuperamos tu proveedor de datos
 import { DashboardView } from './views/DashboardView';
 import { ControlView } from './views/ControlView';
 import { LoginView } from './views/LoginView';
