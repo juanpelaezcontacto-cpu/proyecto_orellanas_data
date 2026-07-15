@@ -1,5 +1,5 @@
 import React from 'react';
-import { Grid2 as Grid, Box, Typography, Card, CardContent, CircularProgress, Button } from '@mui/material';
+import { Grid, Box, Typography, Card, CardContent, CircularProgress, Button } from "@mui/material";
 import { ResponsiveContainer, AreaChart, Area } from 'recharts';
 import { 
   Wifi, WifiOff, RefreshCw, Thermometer, Droplets, Wind, Zap, Lock, Unlock, ShieldAlert
