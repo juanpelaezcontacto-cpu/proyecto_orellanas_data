@@ -7,7 +7,7 @@ import { DashboardView } from './views/DashboardView';
 import { ControlView } from './views/ControlView';
 import { LoginView } from './views/LoginView';
 
-// 1. Este componente HIJO puede consumir la sesión sin romper React
+// 1. Componente que consume el estado de autenticación y maneja las pestañas
 function AppContent() {
   const { user, role, logout } = useAuth();
   const [activeTab, setActiveTab] = useState(0); // 0 = Dashboard, 1 = Controles, 2 = Login
@@ -116,11 +116,13 @@ function AppContent() {
   );
 }
 
-// 2. El componente PADRE define el Proveedor y llama al hijo
+// 2. El componente principal envuelve AppContent con todos los contextos requeridos
 export default function App() {
   return (
     <AuthProvider>
-      <AppContent />
+      <TelemetryProvider> {/* 👈 Envolvemos la app para que las vistas puedan leer los sensores */}
+        <AppContent />
+      </TelemetryProvider>
     </AuthProvider>
   );
 }
