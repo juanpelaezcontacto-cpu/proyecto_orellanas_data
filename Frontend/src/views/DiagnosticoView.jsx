@@ -1,88 +1,118 @@
 import React from 'react';
-import { Box, Grid, Typography, Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Stack } from '@mui/material';
+import { Box, Grid, Typography, Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Stack, CircularProgress, Alert } from '@mui/material';
 import { AlertTriangle, Clock, RotateCcw, ShieldCheck, HelpCircle } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
 
 export const DiagnosticoView = () => {
-  const { data, controlState, analysis } = useTelemetry();
+  const { historicalData, latestReading, controlState, analysis, loading } = useTelemetry();
 
-  const latest = data[data.length - 1] || {};
+  if (loading) {
+    return (
+      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
-  const isHumFatigued = analysis.cycles.humidificador > 8; 
-  const isCompFatigued = analysis.cycles.compresor > 4;    
+  if (!latestReading) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">No se ha establecido comunicación con el hardware para realizar autodiagnósticos.</Alert>
+      </Box>
+    );
+  }
+
+  // Prevenir crashes si el backend no ha computado los ciclos
+  const cyclesHum = analysis?.cycles?.humidificador ?? 0;
+  const cyclesComp = analysis?.cycles?.compresor ?? 0;
+
+  const isHumFatigued = cyclesHum > 8; 
+  const isCompFatigued = cyclesComp > 4;    
+
+  const checkSensorState = (state) => {
+    if (state === undefined || state === null) return { label: 'DESCONOCIDO (SIN TELEMETRÍA)', color: '#f59e0b', error: true };
+    if (state > 0) return { label: `FALLA DE BUS (${state})`, color: '#ef4444', error: true };
+    return { label: 'OPERANDO NOMINAL', color: '#22c55e', error: false };
+  };
 
   return (
-    <Box>
-      <Typography variant="h5" sx={{ fontWeight: 800, mb: 3 }}>AUTODIAGNÓSTICO E INTEGRIDAD FISICA</Typography>
+    <Box sx={{ p: { xs: 2, md: 4 } }}>
+      <Typography variant="h5" sx={{ fontWeight: 800, mb: 3, fontFamily: 'monospace' }}>AUTODIAGNÓSTICO E INTEGRIDAD FÍSICA</Typography>
 
       <Grid container spacing={3}>
+        
+        {/* BUSES Y ADQUISICIÓN */}
         <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', fontSize: '1rem' }}>
                 <ShieldCheck size={20} /> INTEGRIDAD DE TRANSISTORES Y ADQUISICIÓN
               </Typography>
               <Stack spacing={1.5}>
                 {[
-                  { name: 'Max6675 (Compresor)', state: latest.err_max },
-                  { name: 'SHT-External (Ambiente Ext)', state: latest.err_sht_ext },
-                  { name: 'SHT-Internal (Cámara Control)', state: latest.err_sht_int },
-                  { name: 'SCD-30 (CO₂ / Hum / Temp)', state: latest.err_scd },
-                  { name: 'PZEM-004T (Energía)', state: latest.err_pzem },
-                ].map((s) => (
-                  <Box 
-                    key={s.name}
-                    sx={{ 
-                      p: 1.5, 
-                      borderRadius: 1, 
-                      bgcolor: s.state > 0 ? 'rgba(239, 68, 68, 0.05)' : 'rgba(34, 197, 94, 0.05)',
-                      border: `1px solid ${s.state > 0 ? '#ef4444' : '#22c55e'}`,
-                      display: 'flex', 
-                      justifyContent: 'space-between',
-                      alignItems: 'center'
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{s.name}</Typography>
-                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: s.state > 0 ? '#ef4444' : '#22c55e' }}>
-                      {s.state > 0 ? `FALLA DE BUS (${s.state})` : 'OPERANDO NOMINAL'}
-                    </Typography>
-                  </Box>
-                ))}
+                  { name: 'Max6675 (Compresor)', state: latestReading.err_max },
+                  { name: 'SHT-External (Ambiente Ext)', state: latestReading.err_sht_ext },
+                  { name: 'SHT-Internal (Cámara Control)', state: latestReading.err_sht_int },
+                  { name: 'SCD-30 (CO₂ / Hum / Temp)', state: latestReading.err_scd },
+                  { name: 'PZEM-004T (Energía)', state: latestReading.err_pzem },
+                ].map((s) => {
+                  const sensor = checkSensorState(s.state);
+                  return (
+                    <Box 
+                      key={s.name}
+                      sx={{ 
+                        p: 1.5, 
+                        borderRadius: 1, 
+                        bgcolor: sensor.error ? 'rgba(239, 68, 68, 0.05)' : 'rgba(34, 197, 94, 0.05)',
+                        border: `1px solid ${sensor.color}`,
+                        display: 'flex', 
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <Typography variant="body2" sx={{ fontWeight: 'bold' }}>{s.name}</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 'bold', color: sensor.color }}>
+                        {sensor.label}
+                      </Typography>
+                    </Box>
+                  );
+                })}
               </Stack>
             </CardContent>
           </Card>
         </Grid>
 
+        {/* SINCRONÍA EN CAMPO */}
         <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', fontSize: '1rem' }}>
                 <Clock size={20} /> SINCRONÍA EN CAMPO (NTP)
               </Typography>
               <Stack spacing={2}>
-                <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: latest.hora_sincronizada ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)', border: `1px solid ${latest.hora_sincronizada ? '#22c55e' : '#ef4444'}` }}>
+                <Box sx={{ p: 1.5, borderRadius: 1, bgcolor: latestReading.hora_sincronizada ? 'rgba(34, 197, 94, 0.05)' : 'rgba(239, 68, 68, 0.05)', border: `1px solid ${latestReading.hora_sincronizada ? '#22c55e' : '#ef4444'}` }}>
                   <Typography variant="body2" sx={{ fontWeight: 'bold' }}>Servidor de Tiempo NTP</Typography>
-                  <Typography variant="h6" sx={{ color: latest.hora_sincronizada ? '#22c55e' : '#ef4444', fontWeight: 'bold', mt: 0.5 }}>
-                    {latest.hora_sincronizada ? 'SINCRONIZADO' : 'HORA LOCAL CAÍDA / NTP OFFLINE'}
+                  <Typography variant="h6" sx={{ color: latestReading.hora_sincronizada ? '#22c55e' : '#ef4444', fontWeight: 'bold', mt: 0.5, fontSize: '1.1rem' }}>
+                    {latestReading.hora_sincronizada ? 'SINCRONIZADO' : 'HORA LOCAL CAÍDA / NTP OFFLINE'}
                   </Typography>
-                  {!latest.hora_sincronizada && (
+                  {!latestReading.hora_sincronizada && (
                     <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
                       * El fotoperiodo se apaga como medida de seguridad si no hay hora precisa.
                     </Typography>
                   )}
                 </Box>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderRadius: 1, bgcolor: 'background.default', border: '1px solid #2d3748' }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderRadius: 1, bgcolor: 'background.default', border: '1px solid #2d3b50' }}>
                   <Typography variant="body2">¿Fotoperiodo activo teóricamente?</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: latest.luz_fotoperiodo_on ? 'primary.main' : 'text.secondary' }}>
-                    {latest.luz_fotoperiodo_on ? 'ENCENDIDO' : 'APAGADO'}
+                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: latestReading.luz_fotoperiodo_on ? 'primary.main' : 'text.secondary' }}>
+                    {latestReading.luz_fotoperiodo_on ? 'ENCENDIDO' : 'APAGADO'}
                   </Typography>
                 </Box>
 
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderRadius: 1, bgcolor: latest.err_luz ? 'rgba(239, 68, 68, 0.05)' : 'background.default', border: `1px solid ${latest.err_luz ? '#ef4444' : '#2d3748'}` }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', p: 1.5, borderRadius: 1, bgcolor: latestReading.err_luz ? 'rgba(239, 68, 68, 0.05)' : 'background.default', border: `1px solid ${latestReading.err_luz ? '#ef4444' : '#2d3b50'}` }}>
                   <Typography variant="body2">Sensor de iluminación (PZEM feedback):</Typography>
-                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: latest.err_luz ? '#ef4444' : '#22c55e' }}>
-                    {latest.err_luz ? 'FALLA INTERNA (No hay consumo de luz)' : 'CONEXIÓN OK'}
+                  <Typography variant="body2" sx={{ fontWeight: 'bold', color: latestReading.err_luz ? '#ef4444' : '#22c55e' }}>
+                    {latestReading.err_luz ? 'FALLA INTERNA (No hay consumo de luz)' : 'CONEXIÓN OK'}
                   </Typography>
                 </Box>
               </Stack>
@@ -90,17 +120,18 @@ export const DiagnosticoView = () => {
           </Card>
         </Grid>
 
+        {/* ANÁLISIS FORENSE */}
         <Grid item xs={12}>
           <Card>
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
-                <RotateCcw size={20} /> ANÁLISIS FORENSE DE FATIGA DE RELES (Últimas 20 muestras)
+              <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', fontSize: '1rem' }}>
+                <RotateCcw size={20} /> ANÁLISIS FORENSE DE FATIGA DE RELÉS
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: isHumFatigued ? '#f59e0b' : '#22c55e', bgcolor: isHumFatigued ? 'rgba(245, 158, 11, 0.05)' : 'transparent' }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>CICLOS HUMIDIFICADOR</Typography>
-                    <Typography variant="h4" sx={{ fontFamily: 'monospace', fontWeight: 'bold', my: 1 }}>{analysis.cycles.humidificador}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>CICLOS HUMIDIFICADOR (20 MUESTRAS)</Typography>
+                    <Typography variant="h4" sx={{ fontFamily: 'monospace', fontWeight: 'bold', my: 1 }}>{cyclesHum}</Typography>
                     {isHumFatigued ? (
                       <Typography variant="caption" color="warning.main" sx={{ display: 'block', fontWeight: 'bold' }}>
                         ⚠️ Histéresis estrecha. Riesgo de arco eléctrico continuo.
@@ -112,8 +143,8 @@ export const DiagnosticoView = () => {
                 </Grid>
                 <Grid item xs={12} sm={6}>
                   <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: isCompFatigued ? '#ef4444' : '#22c55e', bgcolor: isCompFatigued ? 'rgba(239, 68, 68, 0.05)' : 'transparent' }}>
-                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>CICLOS COMPRESOR</Typography>
-                    <Typography variant="h4" sx={{ fontFamily: 'monospace', fontWeight: 'bold', my: 1 }}>{analysis.cycles.compresor}</Typography>
+                    <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>CICLOS COMPRESOR (20 MUESTRAS)</Typography>
+                    <Typography variant="h4" sx={{ fontFamily: 'monospace', fontWeight: 'bold', my: 1 }}>{cyclesComp}</Typography>
                     {isCompFatigued ? (
                       <Typography variant="caption" color="error.main" sx={{ display: 'block', fontWeight: 'bold' }}>
                         🚨 PELIGRO: Exceso de arranques. Riesgo de pegado de contactos del relé.
@@ -128,10 +159,11 @@ export const DiagnosticoView = () => {
           </Card>
         </Grid>
 
+        {/* CAMPOS IGNORADOS */}
         <Grid item xs={12}>
-          <Card sx={{ border: '1px dashed #4a5568' }}>
+          <Card sx={{ border: '1px dashed #2d3b50' }}>
             <CardContent>
-              <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', color: 'text.secondary' }}>
+              <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', color: 'text.secondary', fontSize: '1rem' }}>
                 <HelpCircle size={20} /> CAMPOS DE NIVEL 2 (IGNORADOS POR EL FIRMWARE ACTUAL)
               </Typography>
               <TableContainer sx={{ bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
@@ -172,6 +204,7 @@ export const DiagnosticoView = () => {
             </CardContent>
           </Card>
         </Grid>
+
       </Grid>
     </Box>
   );

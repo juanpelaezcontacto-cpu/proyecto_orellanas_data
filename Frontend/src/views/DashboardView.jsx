@@ -170,7 +170,7 @@ export function DashboardView() {
                     <Thermometer size={14} /> TEMP. CÁMARA
                   </Typography>
                   <Typography variant="h5" sx={{ my: 1, fontFamily: 'monospace' }}>
-                    {latestReading.temp_inf !== null ? `${latestReading.temp_inf.toFixed(1)}°C` : 'N/A'}
+                    {latestReading.temp_inf != null ? `${Number(latestReading.temp_inf).toFixed(1)}°C` : 'N/A'}
                   </Typography>
                 </Box>
                 {/* Mini Sparkline 2h */}
@@ -183,7 +183,7 @@ export function DashboardView() {
                 </Box>
               </Box>
               <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-                Temp Ext: {latestReading.temp_sup !== null ? `${latestReading.temp_sup.toFixed(1)}°C` : 'N/A'}
+                Temp Ext: {latestReading.temp_sup != null ? `${Number(latestReading.temp_sup).toFixed(1)}°C` : 'N/A'}
               </Typography>
             </CardContent>
           </Card>
@@ -199,7 +199,7 @@ export function DashboardView() {
                     <Droplet size={14} /> HUMEDAD RELATIVA
                   </Typography>
                   <Typography variant="h5" sx={{ my: 1, fontFamily: 'monospace' }}>
-                    {latestReading.hum_inf !== null ? `${latestReading.hum_inf.toFixed(1)}%` : 'N/A'}
+                    {latestReading.hum_inf != null ? `${Number(latestReading.hum_inf).toFixed(1)}%` : 'N/A'}
                   </Typography>
                 </Box>
                 <Box sx={{ width: 80, height: 40 }}>
@@ -227,7 +227,7 @@ export function DashboardView() {
                     <Wind size={14} /> CONCENTRACIÓN CO2
                   </Typography>
                   <Typography variant="h5" sx={{ my: 1, fontFamily: 'monospace' }}>
-                    {latestReading.co2_inf !== null ? `${latestReading.co2_inf.toFixed(0)} ppm` : 'N/A'}
+                    {latestReading.co2_inf != null ? `${Number(latestReading.co2_inf).toFixed(0)} ppm` : 'N/A'}
                   </Typography>
                 </Box>
                 <Box sx={{ width: 80, height: 40 }}>
@@ -255,7 +255,7 @@ export function DashboardView() {
                     <Activity size={14} /> POTENCIA ACTIVA
                   </Typography>
                   <Typography variant="h5" sx={{ my: 1, fontFamily: 'monospace' }}>
-                    {latestReading.potencia !== null ? `${latestReading.potencia.toFixed(1)} W` : 'N/A'}
+                    {latestReading.potencia != null ? `${Number(latestReading.potencia).toFixed(1)} W` : 'N/A'}
                   </Typography>
                 </Box>
                 <Box sx={{ display: 'flex', height: 40, alignItems: 'center' }}>
@@ -263,7 +263,7 @@ export function DashboardView() {
                 </Box>
               </Box>
               <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 1 }}>
-                Voltaje de Red: {latestReading.voltaje !== null ? `${latestReading.voltaje.toFixed(1)} V` : 'N/A'}
+                Voltaje de Red: {latestReading.voltaje != null ? `${Number(latestReading.voltaje).toFixed(1)} V` : 'N/A'}
               </Typography>
             </CardContent>
           </Card>
@@ -295,7 +295,7 @@ export function DashboardView() {
                 {/* Humidificador */}
                 <Grid item xs={6} md={3}>
                   <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 1, border: '1px solid #2d3b50', textAlign: 'center' }}>
-                    <Droplet size={24} color={latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8'} style={{ marginBottom: 8 }} />
+                    <Droplet size={24} color={latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8'} style={{ marginBottom: 8 }} style={{ marginBottom: 8 }} />
                     <Typography variant="body2" sx={{ fontWeight: 'bold', display: 'block' }}>HUMIDIFICADOR</Typography>
                     <Typography variant="caption" sx={{ color: latestReading.humidificador === 1 ? 'success.main' : 'text.secondary', fontWeight: 'bold' }}>
                       {latestReading.humidificador === 1 ? 'ON (Nebulizando)' : 'OFF'}

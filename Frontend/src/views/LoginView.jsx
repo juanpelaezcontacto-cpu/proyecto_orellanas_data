@@ -25,10 +25,10 @@ export const LoginView = () => {
   };
 
   return (
-    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
-      <Card sx={{ maxWidth: 400, width: '100%' }}>
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '40vh', px: 2 }}>
+      <Card sx={{ maxWidth: 400, width: '100%', border: '1px solid #2d3b50' }}>
         <CardContent sx={{ p: 4 }}>
-          <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 3, textAlign: 'center' }}>
+          <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 3, textAlign: 'center', fontFamily: 'monospace' }}>
             Acceso de Operadores
           </Typography>
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}

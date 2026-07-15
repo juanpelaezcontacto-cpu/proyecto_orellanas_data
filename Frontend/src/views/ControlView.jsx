@@ -1,26 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { Box, Card, CardContent, Typography, FormControl, InputLabel, Select, MenuItem, Switch, FormControlLabel, Button, Alert, Divider, CircularProgress, Grid } from '@mui/material';
-import { Save, AlertTriangle, ShieldAlert } from 'lucide-react';
+import { Save, AlertTriangle, ShieldAlert, RefreshCw } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useAuth } from '../context/AuthContext'; 
-
-// 1. El cliente real de Supabase (desde la raíz de src)
 import { supabase } from "../supabaseClient"; 
-
-// 2. Las etiquetas (desde la carpeta de servicios)
 import { ESPECIE_LABEL, FASE_LABEL } from '../services/supabaseService';
+import { LoginView } from './LoginView'; // Integración de seguridad directa
 
 export const ControlView = () => {
   const { controlState, refetch } = useTelemetry();
-  const { role, user } = useAuth(); // 2. Obtener rol y usuario actual
+  const { role, user } = useAuth(); 
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(null);
+  const [isInitialized, setIsInitialized] = useState(false);
 
-  // 3. Evaluar si el usuario tiene permisos de escritura
   const hasWritePermission = user && (role === 'operator' || role === 'admin');
 
+  // Inicialización controlada (Previene que la telemetría en tiempo real borre lo que digita el operario)
   useEffect(() => {
-    if (controlState) {
+    if (controlState && !isInitialized) {
       setForm({
         especie: controlState.especie ?? 0,
         fase: controlState.fase ?? 1,
@@ -29,8 +27,24 @@ export const ControlView = () => {
         permiso_nube_co2: controlState.permiso_nube_co2 ?? 1,
         permiso_nube_luz: controlState.permiso_nube_luz ?? 1,
       });
+      setIsInitialized(true);
     }
-  }, [controlState]);
+  }, [controlState, isInitialized]);
+
+  const handleSyncWithHardware = () => {
+    setIsInitialized(false); // Fuerza recarga del estado actual de la BD
+  };
+
+  if (!user) {
+    return (
+      <Box sx={{ py: 4 }}>
+        <Alert severity="info" sx={{ mb: 3, mx: 'auto', maxWidth: 450, border: '1px solid #0284c7' }} icon={<ShieldAlert />}>
+          <strong>ACCESO RESTRINGIDO:</strong> Se requiere autenticación de operador para inyectar consignas de control físico en el hardware.
+        </Alert>
+        <LoginView />
+      </Box>
+    );
+  }
 
   if (!form) {
     return (
@@ -41,7 +55,7 @@ export const ControlView = () => {
   }
 
   const handleChange = (field, value) => {
-    if (!hasWritePermission) return; // Salvaguarda en JS
+    if (!hasWritePermission) return; 
     setForm(prev => ({ ...prev, [field]: value }));
   };
 
@@ -64,7 +78,7 @@ export const ControlView = () => {
 
       if (error) throw error;
       await refetch();
-      alert('Parámetros de control real inyectados a Supabase.');
+      alert('Parámetros de control real inyectados a Supabase con éxito.');
     } catch (err) {
       console.error(err);
       alert('Falla en la inyección de control: ' + err.message);
@@ -74,24 +88,36 @@ export const ControlView = () => {
   };
 
   return (
-    <Box sx={{ maxWidth: 650, mx: 'auto' }}>
-      <Typography variant="h5" sx={{ fontWeight: 800, mb: 3 }}>CONSIGNAS DE CONTROL REAL (NIVEL 1)</Typography>
+    <Box sx={{ maxWidth: 650, mx: 'auto', p: { xs: 2, md: 4 } }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
+        <Typography variant="h5" sx={{ fontWeight: 800, fontFamily: 'monospace' }}>
+          CONSIGNAS DE CONTROL REAL (NIVEL 1)
+        </Typography>
+        <Button 
+          variant="outlined" 
+          size="small" 
+          startIcon={<RefreshCw size={14} />} 
+          onClick={handleSyncWithHardware}
+          disabled={saving}
+        >
+          Sincronizar
+        </Button>
+      </Box>
 
-      {/* 4. Mostrar advertencia visual clara de SOLO LECTURA si no cumple el rol */}
       {!hasWritePermission ? (
-        <Alert severity="info" sx={{ mb: 3, border: '1px solid #0284c7' }} icon={<ShieldAlert />}>
-          <strong>MODO SOLO LECTURA:</strong> Estás visualizando el estado actual de las consignas físicas. Necesitas iniciar sesión con una cuenta de <code>operador</code> para modificar estos parámetros.
+        <Alert severity="warning" sx={{ mb: 3, border: '1px solid #ef4444' }} icon={<ShieldAlert />}>
+          <strong>ROL INSUFICIENTE ({role}):</strong> Tu cuenta de usuario no posee privilegios de escritura sobre los actuadores del ESP32.
         </Alert>
       ) : (
-        <Alert severity="warning" sx={{ mb: 3, border: '1px solid #f59e0b' }} icon={<AlertTriangle />}>
-          <strong>MODO OPERADOR ACTIVO:</strong> Las modificaciones se transmitirán inmediatamente al hardware.
+        <Alert severity="success" sx={{ mb: 3, border: '1px solid #22c55e' }} icon={<AlertTriangle />}>
+          <strong>MODO OPERADOR ACTIVO:</strong> Autenticado como <code>{user.email}</code>. Las modificaciones se transmitirán inmediatamente al hardware.
         </Alert>
       )}
 
-      <Card sx={{ opacity: hasWritePermission ? 1 : 0.75 }}>
+      <Card sx={{ opacity: hasWritePermission ? 1 : 0.8 }}>
         <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
           <Box>
-            <Typography variant="h6" sx={{ mb: 2, fontSize: '0.9rem', fontWeight: 'bold', color: 'primary.main' }}>
+            <Typography variant="h6" sx={{ mb: 2, fontSize: '0.9rem', fontWeight: 'bold', color: 'primary.main', fontFamily: 'monospace' }}>
               SELECCIÓN DE PERFIL DE BIOMASA
             </Typography>
             <Grid container spacing={2}>
@@ -116,13 +142,13 @@ export const ControlView = () => {
             </Grid>
           </Box>
 
-          <Divider sx={{ borderColor: '#2d3748' }} />
+          <Divider sx={{ borderColor: '#2d3b50' }} />
 
           <Box>
-            <Typography variant="h6" sx={{ mb: 1.5, fontSize: '0.9rem', fontWeight: 'bold', color: 'primary.main' }}>
+            <Typography variant="h6" sx={{ mb: 1.5, fontSize: '0.9rem', fontWeight: 'bold', color: 'primary.main', fontFamily: 'monospace' }}>
               VETOS / PERMISOS DE ACTUACIÓN DESDE LA NUBE
             </Typography>
-            <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 2 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
               <FormControlLabel 
                 control={<Switch checked={!!form.set_compresor} disabled={!hasWritePermission} onChange={(e) => handleChange('set_compresor', e.target.checked ? 1 : 0)} color="primary" />} 
                 label="Habilitar Compresor" 
@@ -144,7 +170,7 @@ export const ControlView = () => {
 
           {hasWritePermission && (
             <>
-              <Divider sx={{ borderColor: '#2d3748' }} />
+              <Divider sx={{ borderColor: '#2d3b50' }} />
               <Button 
                 variant="contained" 
                 color="primary" 

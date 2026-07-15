@@ -64,7 +64,6 @@ class ErrorBoundary extends Component {
 // ==========================================
 // 2. CONFIGURACIÓN DINÁMICA DE VISTAS (PUNTOS CIEGOS ELIMINADOS)
 // ==========================================
-// Almacenamos la clase/función del componente (ej: ClimaView), NO la etiqueta instanciada (<ClimaView />)
 const viewsList = [
   { id: 0, label: 'Dashboard', icon: <LayoutDashboard size={20} />, component: DashboardView },
   { id: 1, label: 'Clima', icon: <CloudSun size={20} />, component: ClimaView },
