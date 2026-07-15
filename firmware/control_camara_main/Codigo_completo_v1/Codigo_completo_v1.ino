@@ -41,8 +41,8 @@ const char* API_SECRET_ESP32 = "orellanas_ESP32_4dA9!2kP7mX#2026";
 // ===================================================
 // ================= Salidas digitales =================
 // ===================================================
-SHT4x_7semi sht1;                   // T/H Interior superior
-SHT4x_7semi sht2;                   // T/H Exterior (entrada de aire)
+SHT4x_7semi sht_ext;                   // T/H Exterior superior
+SHT4x_7semi sht_int;                   // T/H Interior (entrada de aire)
 SensirionI2cScd4x scd;              // CO2/T/H interior inferior
 Adafruit_MAX31865 thermo(PIN_CS);   // PT100 compresor
 const int Puerta = 27;              // Final carrera puerta en GPIO 27
@@ -58,7 +58,7 @@ unsigned long ultimaTransmisionRafaga = 0;
 const unsigned long tiempo_reintento_envio_rafaga = 30000;
 
 // --- Configuración del Buffer Local ---
-const int MAX_LECTURAS = 60; 
+const int MAX_LECTURAS = 20; 
 int indiceEscritura = 0;          // Próxima posición donde se escribirá
 int cantidadLecturas = 0;         // Número de lecturas válidas almacenadas
 bool bufferLleno = false;         // Indica si ya comenzó la sobrescritura
@@ -67,15 +67,15 @@ const unsigned long INTERVALO_REINTENTO_MS = 30000;
 unsigned long ultimoIntentoEnvio = 0;
 
 // Variables Globales de Diagnóstico
-int err_max = 0, err_sht1 = 0, err_sht2 = 0, err_scd = 0, err_pzem = 0;
+int err_max = 0, err_sht_ext = 0, err_sht_int = 0, err_scd = 0, err_pzem = 0;
 uint8_t ciclosSinDatoSCD = 0;
 
 // Variables de Clima y Sensores
 float temp_comp = 0.0;
-float t1 = 0.0;          // SHT Exterior 
-float h1 = 0.0;          
-float t2 = 0.0;          // SHT Interior Superior 
-float h2 = 0.0;          
+float temp_ext = 0.0;          // SHT Exterior 
+float hum_ext = 0.0;          
+float temp_int_sup = 0.0;          // SHT Interior Superior 
+float hum_int_sup = 0.0;          
 float t_inf = 0.0;       // SCD40 o Inferior 
 float h_inf = 0.0;       
 uint16_t co2 = 0;        
@@ -91,7 +91,8 @@ float pzem_frecuencia = 0.0;
 float pzem_pf = 0.0;
 
 struct RegistroCompletoHistorial {
-    int err_max; int err_sht1; int err_sht2; int err_scd; int err_pzem;
+    uint32_t timestamp; // 1. CONTRATO DE DATOS: Nuevo campo Unix Epoch (4 bytes)
+    int err_max; int err_sht_ext; int err_sht_int; int err_scd; int err_pzem;
     float temp_comp; float temp_ext; float hum_ext; float temp_int_sup; float hum_int_sup;
     float temp_int_inf; float hum_int_inf; int co2_inf; float resistencia; int puerta;
     float voltaje; float corriente_neta; float potencia_w; float energia_kwh; float frecuencia_hz; float factor_potencia;
@@ -157,17 +158,18 @@ bool permiso_nube_compresor = true;
 enum Especie { PLEUROTUS = 0, HERICIUM = 1 };
 enum Fase    { INCUBACION = 0, FRUCTIFICACION = 1 };
 
+
 Especie especie_actual = PLEUROTUS;
 Fase    fase_actual     = FRUCTIFICACION;
 
 struct PerfilCultivo {
   float temp_setpoint;   // setpoint usado por la histéresis existente (solo enfriamiento)
-  float hum_min;
-  float hum_max;
-  uint16_t co2_max;      // referencia solo para fase de fructificación
+  float hum_setpoint_min;
+  float hum_setpoint_max;
+  uint16_t co2_setpoint_max;      // referencia solo para fase de fructificación
 };
 
-// [especie][fase] -> {temp_setpoint, hum_min, hum_max, co2_max}
+// [especie][fase] -> {temp_setpoint, hum_setpoint_min, hum_setpoint_max, co2_setpoint_max}
 PerfilCultivo perfiles[2][2] = {
   // PLEUROTUS OSTREATUS
   {
@@ -192,8 +194,8 @@ unsigned long tiempo_ultimo_apagado_humid = -TIEMPO_MIN_CICLO_HUMID;
 
 // ================= Control local de CO2 =================
 const int PWM_CO2_MIN_RECIRC = 40;   // recirculación mínima constante, incluso sin exceso de CO2
-const int PWM_CO2_MAX = 255;
-const uint16_t CO2_BANDA_PROPORCIONAL = 400; // ppm sobre el máximo para llegar a PWM_CO2_MAX — VALOR DE PARTIDA
+const int PWM_co2_max = 255;
+const uint16_t CO2_BANDA_PROPORCIONAL = 400; // ppm sobre el máximo para llegar a PWM_co2_max — VALOR DE PARTIDA
 
 // ================= Fotoperiodo (lazo ABIERTO, no cerrado — ver justificación) =================
 // No existe sensor de luz/lux instalado. Esto NO es un lazo de control por
@@ -219,6 +221,13 @@ const unsigned long NTP_TIMEOUT_MS = 15000;         // no bloquear setup() indef
 const unsigned long INTERVALO_RESYNC_NTP = 6UL * 3600UL * 1000UL; // resync cada 6h (drift del RTC interno)
 bool hora_sincronizada = false;
 unsigned long ultimoResyncNTP = 0;
+
+//Estados iniciales de temperatura
+float t0_int_inf = 20.0, t0_int_sup = 20.0, t0_ext = 20.0;
+//Variables de estado
+bool estado_sht_ext = true;
+bool estado_sht_int = true;
+bool estado_scd = true;
 
 static const char ROOT_CA[] PROGMEM = R"EOF(
 -----BEGIN CERTIFICATE-----
@@ -268,31 +277,33 @@ void setup() {
   Wire1.begin(SDA_S, SCL_S, 100000);      
 
   WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
+  unsigned long wifi_start_time = millis();
+  Serial.print("Conectando a Wi-Fi...");
+  while (WiFi.status() != WL_CONNECTED && (millis() - wifi_start_time < 8000)) {
     delay(500);
     Serial.print(".");
   }
-  Serial.println("\nWi-Fi Conectado.");
-
-  // --- Sincronización NTP (requisito duro para el fotoperiodo, ver justificación arriba) ---
-  Serial.println("Sincronizando hora por NTP...");
-  configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER_1, NTP_SERVER_2);
-  struct tm timeinfo;
-  unsigned long ntp_inicio = millis();
-  while (!getLocalTime(&timeinfo, 100) && (millis() - ntp_inicio < NTP_TIMEOUT_MS)) {
-    delay(500);
-    Serial.print("*");
-  }
-  if (getLocalTime(&timeinfo, 100)) {
-    hora_sincronizada = true;
-    Serial.printf("\n✅ Hora sincronizada: %02d:%02d:%02d\n",
-      timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-  } else {
-    hora_sincronizada = false;
-    Serial.println("\n⚠️ No se pudo sincronizar NTP en el arranque. La luz permanecerá APAGADA hasta lograr sincronizar (ver gestionarFotoperiodo()).");
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\n✅Wi-Fi Conectado.");
+      // --- Sincronización NTP (requisito duro para el fotoperiodo, ver justificación arriba) ---
+    Serial.println("Sincronizando hora por NTP...");
+    configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER_1, NTP_SERVER_2);
+    struct tm timeinfo;
+    unsigned long ntp_inicio = millis();
+    while (!getLocalTime(&timeinfo, 100) && (millis() - ntp_inicio < NTP_TIMEOUT_MS)) {
+      delay(500);
+      Serial.print("*");
+    }
+    if (getLocalTime(&timeinfo, 100)) {
+      hora_sincronizada = true;
+      Serial.printf("\n✅ Hora sincronizada: %02d:%02d:%02d\n",
+        timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
+    } else {
+      hora_sincronizada = false;
+      Serial.println("\n⚠️ No se pudo sincronizar NTP en el arranque. La luz permanecerá APAGADA hasta lograr sincronizar (ver gestionarFotoperiodo()).");
+    }
   }
   ultimoResyncNTP = millis();
-
   delay(1000);
   ledcAttachChannel(vent_lateral, frec_vent_lateral, PWM_BITS, CH_vent_lateral);
   ledcWrite(vent_lateral, pwm_vent_lateral);
@@ -312,31 +323,66 @@ void setup() {
   thermo.begin(MAX31865_2WIRE); 
   thermo.clearFault();
   delay(100); 
-
-  if (!sht1.begin(Wire, 0x44, SCL_P, SDA_P)) { Serial.println("Error SHT40 1"); while (1); }
-  if (!sht2.begin(Wire1, 0x44, SCL_S, SDA_S)) { Serial.println("Error SHT40 2"); while (1); }
-  sht1.setPrecision(REPEATABILITY_HIGH);
-  sht2.setPrecision(REPEATABILITY_HIGH);
-
-  scd.begin(Wire, 0x62);
-  scd.stopPeriodicMeasurement();
-  delay(500);
-  scd.startPeriodicMeasurement();
-  
-  pinMode(Puerta, INPUT_PULLUP); 
-  PZEMSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);
-
-  // Pre-cargar el filtro térmico para evitar arranques con promedio en 0
-  Serial.println("Cebando filtro de temperatura...");
-  float t_init2 = 20.0, t_init_inf = 20.0;
-  // Intentar una lectura rápida para no iniciar a ciegas
-  sht2.readTemperatureHumidity(t_init2, h2);
-  scd.readMeasurement(co2, t_init_inf, h_inf);
-  for (int i = 0; i < MAX_MUESTRAS_TEMP; i++) {
-    lecturas_historicas_temp[i] = (t_init2 + t_init_inf) / 2.0;
+//============================================
+// Sensores Canal de Comunicación I2C principal
+//============================================
+//SHT exterior
+  if (!sht_ext.begin(Wire, 0x44, SCL_P, SDA_P)) { 
+    estado_sht_ext = false;
+    Serial.println("Error al inicializar el SHT exterior"); 
+  }else{
+    estado_sht_ext = true;
+    sht_ext.setPrecision(REPEATABILITY_HIGH);
+    Serial.println("SHT exterior inicializado"); 
   }
-  temp_interior_promedio = (t_init2 + t_init_inf) / 2.0;
-
+// SCD interior
+  scd.begin(Wire, 0x62); // Inicialización (retorna void, no genera error de compilación)
+  // Validamos si responde físicamente en el bus I2C intentando detener su medición
+  uint16_t error_scd_init = scd.stopPeriodicMeasurement();
+  if (error_scd_init != 0){
+    estado_scd = false;
+    Serial.println("Error en comunicación con sensor SCD en Canal de Comunicación I2C principal");
+  }else{
+    estado_scd = true;
+    //scd.stopPeriodicMeasurement();
+    delay(500);
+    scd.startPeriodicMeasurement();
+    Serial.println("SCD en Canal de Comunicación I2C principal inicializado"); 
+  }
+//============================================
+// Sensores Canal de Comunicación I2C secundario
+//============================================
+// SHT interior
+  if (!sht_int.begin(Wire1, 0x44, SCL_S, SDA_S)) { 
+    estado_sht_int = false;
+    Serial.println("Error al inicializar el SHT interior"); 
+  }else{
+    estado_sht_int = true;
+    sht_int.setPrecision(REPEATABILITY_HIGH);
+    Serial.println("SHT interior en Canal de Comunicación I2C secundario inicializado"); 
+  }
+//***********************************************************
+  if (estado_sht_int){
+    sht_int.readTemperatureHumidity(t0_int_sup, hum_int_sup);
+  }
+//***********************************************************
+  if (estado_scd){
+    // Pre-cargar el filtro térmico para evitar arranques con promedio en 0
+    Serial.println("Cebando filtro de temperatura...");
+    scd.readMeasurement(co2, t0_int_inf, h_inf);
+  }
+//***********************************************************
+  if (estado_sht_ext){
+    sht_ext.readTemperatureHumidity(t0_ext, hum_ext);
+  }
+//**********Cálculo temperatura promedio************************
+for (int i = 0; i < MAX_MUESTRAS_TEMP; i++) {
+    lecturas_historicas_temp[i] = (t0_int_sup + t0_int_inf) / 2.0;
+  }
+  temp_interior_promedio = (t0_int_sup + t0_int_inf) / 2.0;
+//*****************************************
+  pinMode(Puerta, INPUT_PULLUP);                      //Configuración pin Puerta 
+  PZEMSerial.begin(9600, SERIAL_8N1, RXD2, TXD2);     //Configuaación PZEM
   aplicarPerfilLocal();
 }
 
@@ -348,8 +394,8 @@ void aplicarPerfilLocal() {
   PerfilCultivo p = perfiles[especie_actual][fase_actual];
   setpoint_temp = p.temp_setpoint;
   Serial.printf(
-    "🎛️ Perfil aplicado: especie=%d fase=%d | setpoint_temp=%.1f°C | hum=[%.1f-%.1f]%% | co2_max=%u ppm\n",
-    especie_actual, fase_actual, p.temp_setpoint, p.hum_min, p.hum_max, p.co2_max
+    "🎛️ Perfil aplicado: especie=%d fase=%d | setpoint_temp=%.1f°C | hum=[%.1f-%.1f]%% | co2_setpoint_max=%u ppm\n",
+    especie_actual, fase_actual, p.temp_setpoint, p.hum_setpoint_min, p.hum_setpoint_max, p.co2_setpoint_max
   );
 }
 
@@ -369,8 +415,8 @@ void actualizarCicloCompresor() {
   }
 }
 
-void calcularTemperaturaAmbiente(float t2, float t_inf) {
-  float t_instantanea = (t2 + t_inf) / 2.0; 
+void calcularTemperaturaAmbiente(float temp_int_sup, float t_inf) {
+  float t_instantanea = (temp_int_sup + t_inf) / 2.0; 
   lecturas_historicas_temp[indice_lectura_temp] = t_instantanea;
   indice_lectura_temp = (indice_lectura_temp + 1) % MAX_MUESTRAS_TEMP; 
   
@@ -421,14 +467,39 @@ void controlarHumedadCultivo() {
   // Si el SCD40 no está entregando datos frescos (err_scd), no accionamos
   // sobre una lectura potencialmente vieja: mantenemos el último estado en
   // vez de alternar el humidificador a ciegas.
-  if (err_scd != 0) return;
-
+  if (err_scd != 0) {
+    if(estado_humidificador == true){
+      estado_humidificador = false;
+      digitalWrite(humidificador, LOW);
+      Serial.println("🚨 Sensor SCD offline. Humidificador apagado de emergencia.");
+    }
+    return;       // Sale de la función de manera segura
+  }
+  // ====== INTERRUPCIÓN POR INYECCIÓN DE AIRE EXTERIOR ======
+  // Si hay exceso de CO2, el ventilador de CO2 meterá aire a presión y desalojará
+  // el aire interno por el agujero inferior. Apagamos el humidificador para no tirar agua.
   PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
   float hum_actual = h_inf; // sensor más cercano al humidificador (parte inferior)
+
+  if (fase_actual == FRUCTIFICACION && co2 > perfil.co2_setpoint_max && permiso_nube_co2) {
+    if (hum_actual >= 75.0){
+      if (estado_humidificador == true) {
+        estado_humidificador = false;
+        digitalWrite(humidificador, LOW);
+        tiempo_ultimo_apagado_humid = millis();
+        Serial.println("🚨 Humidificador vetado: Evitando pérdida de humedad por el agujero de salida inferior.");
+      }
+      return; // Bloqueo activo. Bloquea el encendido del humidificador.
+    }else{
+      // Si cae de 75%, no entra al 'if', no hace 'return' e ignora el veto.
+      Serial.println("⚠️ PÁNICO: Humedad críticamente baja (<75%). Anulando veto de CO2 para hidratar el cultivo.");
+    }
+  }
+  
   unsigned long ahora = millis();
   bool respeta_ciclo_minimo = (ahora - tiempo_ultimo_apagado_humid >= TIEMPO_MIN_CICLO_HUMID);
 
-  if (hum_actual < perfil.hum_min && estado_humidificador == false) {
+  if (hum_actual < perfil.hum_setpoint_min && estado_humidificador == false) {
     if (permiso_nube_humidificador && respeta_ciclo_minimo) {
       estado_humidificador = true;
       digitalWrite(humidificador, HIGH);
@@ -436,7 +507,7 @@ void controlarHumedadCultivo() {
     }
   }
 
-  if ((hum_actual >= perfil.hum_max || !permiso_nube_humidificador) && estado_humidificador == true) {
+  if ((hum_actual >= perfil.hum_setpoint_max || !permiso_nube_humidificador) && estado_humidificador == true) {
     estado_humidificador = false;
     digitalWrite(humidificador, LOW);
     tiempo_ultimo_apagado_humid = ahora;
@@ -448,7 +519,7 @@ void controlarHumedadCultivo() {
 // PWM proporcional sobre el ventilador superior de intercambio de aire
 // exterior. Comportamiento distinto por fase: en incubación el CO2 alto es
 // deseado (no reactivo, solo recirculación mínima); en fructificación es
-// activo y proporcional al exceso sobre co2_max.
+// activo y proporcional al exceso sobre co2_setpoint_max.
 void controlarCO2Cultivo() {
   if (!permiso_nube_co2) {
     pwm_vent_co2 = 0;
@@ -456,22 +527,27 @@ void controlarCO2Cultivo() {
     return;
   }
 
-  // Dato de CO2 no confiable: mantener el último PWM ya escrito en vez de
-  // reaccionar sobre una lectura vieja.
-  if (err_scd != 0) return;
+  /// ACCIÓN DEFENSIVA: Si el sensor falla, no dejes el ventilador al valor anterior.
+  // Setea el mínimo seguro para evitar deshidratación masiva.
+  if (err_scd != 0) {
+    pwm_vent_co2 = PWM_CO2_MIN_RECIRC;
+    ledcWrite(vent_co2, pwm_vent_co2);
+    return;
+  }
+  
 
   PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
 
   if (fase_actual == INCUBACION) {
     pwm_vent_co2 = PWM_CO2_MIN_RECIRC;
   } else {
-    if (co2 <= perfil.co2_max) {
+    if (co2 <= perfil.co2_setpoint_max) {
       pwm_vent_co2 = PWM_CO2_MIN_RECIRC;
     } else {
-      uint16_t exceso = co2 - perfil.co2_max;
+      uint16_t exceso = co2 - perfil.co2_setpoint_max;
       int pwm_calculado = PWM_CO2_MIN_RECIRC +
-        (int)(((float)exceso / CO2_BANDA_PROPORCIONAL) * (PWM_CO2_MAX - PWM_CO2_MIN_RECIRC));
-      pwm_vent_co2 = constrain(pwm_calculado, PWM_CO2_MIN_RECIRC, PWM_CO2_MAX);
+        (int)(((float)exceso / CO2_BANDA_PROPORCIONAL) * (PWM_co2_max - PWM_CO2_MIN_RECIRC));
+      pwm_vent_co2 = constrain(pwm_calculado, PWM_CO2_MIN_RECIRC, PWM_co2_max);
     }
   }
   ledcWrite(vent_co2, pwm_vent_co2);
@@ -531,7 +607,7 @@ void gestionarFotoperiodo() {
 // con el tiempo). No bloquea: dispara un nuevo intento de SNTP en segundo
 // plano, sin interrumpir el fotoperiodo en curso.
 void gestionarResyncNTP() {
-  if (millis() - ultimoResyncNTP >= INTERVALO_RESYNC_NTP) {
+  if (WiFi.status() == WL_CONNECTED && millis() - ultimoResyncNTP >= INTERVALO_RESYNC_NTP) {
     ultimoResyncNTP = millis();
     Serial.println("🔄 Resincronizando NTP...");
     configTime(GMT_OFFSET_SEC, DAYLIGHT_OFFSET_SEC, NTP_SERVER_1, NTP_SERVER_2);
@@ -542,21 +618,37 @@ void gestionarVentiladoresInteligentes() {
   static int ultimo_pwm_lateral = -1;
   static int ultimo_pwm_superior = -1;
 
+  // Evaluamos si físicamente hay una condición de exceso de CO2 en fructificación
+  PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
+  bool exceso_co2 = (fase_actual == FRUCTIFICACION && co2 > perfil.co2_setpoint_max);
+
+  // CASO 1: Compresor activo o en post-enfriamiento (Prioridad máxima de mezcla térmica)
   if (estado_compresor == 1 || (estado_compresor == 0 && (millis() - tiempo_ultimo_apagado < POST_ENFRIAMIENTO))) {
-    pwm_vent_lateral = 255; pwm_vent_superior = 255;
+    pwm_vent_lateral = 255; 
+    pwm_vent_superior = 255;
     cronometro_recirculacion = millis(); 
-  } else {
+  // CASO 2: Emergencia de CO2 (Inyección externa activa).
+  // Forzamos recirculación interna para romper el "túnel" de aire y obligar al aire fresco 
+  // a barrer el CO2 de los bloques de hongo antes de que escape por el agujero inferior.
+  }else if (exceso_co2 && permiso_nube_co2 && err_scd == 0) {
+      pwm_vent_lateral = 255; 
+      pwm_vent_superior = 255;
+      cronometro_recirculacion = millis();
+  }
+  // CASO 3: Ciclo estándar por tiempo (Sin alarmas térmicas ni de gases)
+   else {
     unsigned long tiempo_desde_ultimo_ciclo = millis() - cronometro_recirculacion;
     if (tiempo_desde_ultimo_ciclo < DURACION_RECIRCULACION) {
-      pwm_vent_lateral = 255; pwm_vent_superior = 255;
+      pwm_vent_lateral = 255; 
+      pwm_vent_superior = 255;
     } else if (tiempo_desde_ultimo_ciclo < INTERVALO_RECIRCULACION) {
-      pwm_vent_lateral = 0; pwm_vent_superior = 0;
+      pwm_vent_lateral = 0; 
+      pwm_vent_superior = 0;
     } else {
       cronometro_recirculacion = millis();
     }
   }
-
-  // Escribir solo si hubo un cambio real
+  // Se mantiene intacto tu bloque original de escritura física por ledcWrite
   if (pwm_vent_lateral != ultimo_pwm_lateral) {
     ledcWrite(vent_lateral, pwm_vent_lateral);
     ultimo_pwm_lateral = pwm_vent_lateral;
@@ -567,70 +659,77 @@ void gestionarVentiladoresInteligentes() {
   }
 }
 
-void leersensores(){
-  unsigned long tiempoActual = millis();   
-  if (tiempoActual - ultimoEnvio >= intervaloEnvio){
-    ultimoEnvio = tiempoActual;
-    
+void leersensores(){ 
+  if (estado_sht_int) {
+    // Lectura SHT
+    err_sht_int = !sht_int.readTemperatureHumidity(temp_int_sup, hum_int_sup);
+  }else{err_sht_int = 1;}
+
+  if (estado_scd){
     // Lectura SCD40
     bool dataReady = false;
     scd.getDataReadyStatus(dataReady); 
     if (dataReady) {
       scd.readMeasurement(co2, t_inf, h_inf);
       if ( err_scd != 0){
-         Serial.println("✅ SCD40 volvió a entregar datos.");
+        Serial.println("✅ SCD40 volvió a entregar datos.");
       }
       err_scd = 0;
       ciclosSinDatoSCD = 0;
     }else {
-        ciclosSinDatoSCD++;
-        if (ciclosSinDatoSCD >= 3){
-          err_scd = 1;
-          Serial.println("⚠️ SCD40 sin datos nuevos desde hace 15 s.");
-        } 
+      ciclosSinDatoSCD++;
+      if (ciclosSinDatoSCD >= 5){ //Aumenta el umbral de tolerancia a 5 o 6 ciclos (25 a 30 segundos). No compromete la seguridad del cultivo y absorbe cualquier desfase temporal o fluctuación en el tiempo de ejecución del código principal.
+        err_scd = 1;
+        Serial.println("⚠️ SCD40 sin datos nuevos desde hace 15 s.");
+      } 
     }
-    uint16_t rtd = thermo.readRTD();
-    resistencia = ((float)rtd / 32768.0) * RREF;
-    uint8_t codigoFalla = thermo.readFault();
-    
-    if (codigoFalla != 0) {
-      thermo.clearFault();
-      delay(5); 
-      codigoFalla = thermo.readFault();
-    }
+  }else{
+    err_scd = 1;
+  }
+  if (estado_sht_ext){
+    err_sht_ext = !sht_ext.readTemperatureHumidity(temp_ext, hum_ext);
+  }else{
+    err_sht_ext = 1;
+  }
+  uint16_t rtd = thermo.readRTD();
+  resistencia = ((float)rtd / 32768.0) * RREF;
+  uint8_t codigoFalla = thermo.readFault();
 
-    if (codigoFalla != 0) { err_max = 1; } 
-    else { err_max = 0; temp_comp = thermo.temperature(RNOMINAL, RREF); }
+  if (codigoFalla != 0) {
+    thermo.clearFault();
+    delay(5); 
+    codigoFalla = thermo.readFault();
+    err_max = 1; 
+  }else { 
+    err_max = 0; 
+    temp_comp = thermo.temperature(RNOMINAL, RREF); 
+  }
 
-    // SHT40s
-    err_sht1 = !sht1.readTemperatureHumidity(t1, h1);
-    err_sht2 = !sht2.readTemperatureHumidity(t2, h2);
-    
-    // Puerta
-    estado_Puerta = !digitalRead(Puerta); 
 
-    // PZEM (Corrección del Bug del isnan)
-    float v_tmp  = pzem.voltage();
-    float c_tmp  = pzem.current() / 3.0; 
-    float p_tmp  = pzem.power() / 3.0;
-    float e_tmp  = pzem.energy() / 3.0;
-    float f_tmp  = pzem.frequency();
-    float pf_tmp = pzem.pf();
+  // Puerta
+  estado_Puerta = !digitalRead(Puerta); 
 
-    if (isnan(v_tmp) || isnan(c_tmp) || isnan(p_tmp) || isnan(e_tmp) || isnan(f_tmp) || isnan(pf_tmp)) {
-      err_pzem = 1;
-      pzem_voltaje = 0.0; pzem_corriente = 0.0; pzem_potencia = 0.0; pzem_energia = 0.0; pzem_frecuencia = 0.0; pzem_pf = 0.0;
-    } else {
-      err_pzem = 0;
-      pzem_voltaje = v_tmp; pzem_corriente = c_tmp; pzem_potencia = p_tmp; pzem_energia = e_tmp; pzem_frecuencia = f_tmp; pzem_pf = pf_tmp;
-    }
+  // PZEM (Corrección del Bug del isnan)
+  float v_tmp  = pzem.voltage();
+  float c_tmp  = pzem.current() / 3.0; 
+  float p_tmp  = pzem.power() / 3.0;
+  float e_tmp  = pzem.energy() / 3.0;
+  float f_tmp  = pzem.frequency();
+  float pf_tmp = pzem.pf();
+
+  if (isnan(v_tmp) || isnan(c_tmp) || isnan(p_tmp) || isnan(e_tmp) || isnan(f_tmp) || isnan(pf_tmp)) {
+    err_pzem = 1;
+    pzem_voltaje = 0.0; pzem_corriente = 0.0; pzem_potencia = 0.0; pzem_energia = 0.0; pzem_frecuencia = 0.0; pzem_pf = 0.0;
+  } else {
+    err_pzem = 0;
+    pzem_voltaje = v_tmp; pzem_corriente = c_tmp; pzem_potencia = p_tmp; pzem_energia = e_tmp; pzem_frecuencia = f_tmp; pzem_pf = pf_tmp;
   }
 }
 
 bool enviarRafagaANube() {
     WiFiClientSecure client;
     client.setCACert(ROOT_CA);
-    client.setTimeout(15000); /*Esto evita que un handshake TLS lento o una red inestable dejen bloqueado el ESP32 durante demasiado tiempo. Un valor de 15 segundos suele ser un buen compromiso para conexiones móviles o WiFi con latencia elevada.*/
+    client.setTimeout(4000); /*Esto evita que un handshake TLS lento o una red inestable dejen bloqueado el ESP32 durante demasiado tiempo. Un valor de x segundos suele ser un buen compromiso para conexiones móviles o WiFi con latencia elevada.*/
     HTTPClient http;
     
     // CORRECCIÓN SINTAXIS: Se niega para controlar el fallo de inicialización
@@ -642,22 +741,21 @@ bool enviarRafagaANube() {
     
     http.addHeader("Content-Type", "application/json");
     http.addHeader("X-API-Key", API_SECRET_ESP32);
-    http.setTimeout(15000); 
-
-    // Capacidad aumentada de 32768 a 49152: los 13 campos nuevos de
-    // humedad/CO2/luz por registro (x60 registros) ya no caben en el
-    // tamaño original — ver verificación de overflow más abajo.
-    DynamicJsonDocument doc(49152); 
+    http.setTimeout(4000); // Corta la espera de la respuesta del servidor a 4 segundos max
+    //reserva 24576 para 20 registros
+    DynamicJsonDocument doc(24576); 
     doc["device_id"] = DEVICE_ID;
     doc["batch_id"] = batchID;
     JsonArray historial = doc.createNestedArray("historial_lecturas");
+
     int inicio = bufferLleno ? indiceEscritura: 0;
     for (int i = 0; i < cantidadLecturas; i++) {
         int idx = (inicio + i) % MAX_LECTURAS;
         JsonObject obj = historial.createNestedObject();
+        obj["timestamp"]   = bufferCultivo[idx].timestamp;
         obj["err_max"]  = bufferCultivo[idx].err_max;
-        obj["err_sht1"] = bufferCultivo[idx].err_sht1;
-        obj["err_sht2"] = bufferCultivo[idx].err_sht2;
+        obj["err_sht_ext"] = bufferCultivo[idx].err_sht_ext;
+        obj["err_sht_int"] = bufferCultivo[idx].err_sht_int;
         obj["err_scd"]  = bufferCultivo[idx].err_scd;
         obj["err_pzem"] = bufferCultivo[idx].err_pzem;
         obj["temp_comp"]   = bufferCultivo[idx].temp_comp;
@@ -725,21 +823,14 @@ bool enviarRafagaANube() {
           DeserializationError error = deserializeJson(docRespuesta, payload);
           
           if (!error) {
-              // NOTA DE DISEÑO: vent_lateral/vent_superior siguen siendo
-              // fijados directamente por la nube aquí, tal como estaba antes
-              // — pero esto SOBREESCRIBE lo que gestionarVentiladoresInteligentes()
-              // acaba de calcular localmente en el ciclo del compresor. Es un
-              // conflicto preexistente que no se corrige en este cambio porque
-              // está fuera del alcance de humedad/CO2/luz — queda señalado
-              // para revisar aparte.
-              pwm_vent_lateral  = docRespuesta["set_vent_lateral"];  
-              pwm_vent_superior = docRespuesta["set_vent_superior"];
-              permiso_nube_compresor = docRespuesta["set_compresor"];     
-              setpoint_temp         = docRespuesta["setpoint_temp"];                
-
-              ledcWrite(vent_lateral, pwm_vent_lateral);
-              ledcWrite(vent_superior, pwm_vent_superior);
-
+              
+              if (docRespuesta.containsKey("set_compresor")) {
+                permiso_nube_compresor = docRespuesta["set_compresor"];
+              }
+              if (docRespuesta.containsKey("setpoint_temp")) {
+                setpoint_temp = docRespuesta["setpoint_temp"];
+              }
+              
               // Humedad, CO2 y luz ya NO se fijan directamente desde la nube:
               // son lazos locales (controlarHumedadCultivo(), controlarCO2Cultivo(),
               // gestionarFotoperiodo()). La nube solo puede VETAR el actuador,
@@ -783,10 +874,9 @@ bool enviarRafagaANube() {
               exito = true;
               batchID++;
               prefs.putUInt("batch_id", batchID);
-              Serial.printf(
-                "🆔 Próximo batch_id=%lu\n",
-                batchID
-              );
+              // 🛠️ AJUSTE CRÍTICO: Reiniciar el índice para el próximo lote limpio
+              indiceEscritura = 0;
+              Serial.printf("🆔 Próximo batch_id=%lu\n",batchID);
               Serial.println("\n--- 📥 PARÁMETROS ACTUALIZADOS DESDE LA NUBE ---");
           } else {
               Serial.printf("❌ Error al parsear JSON: %s\n", error.c_str());
@@ -822,123 +912,127 @@ bool enviarRafagaANube() {
 int fallosConsecutivosEnvio = 0;
 
 void loop() {
+  unsigned long tiempoActual = millis();
+  
+  
+
+    
+  
+  // TAREA 1: Muestreo en memoria RAM
+  if (tiempoActual - ultimoMuestreo >= INTERVALO_MUESTREO) { 
+    ultimoMuestreo = tiempoActual;
+    // 1.1 Leer sensores exactamente cada 5 segundos
     leersensores(); 
-    actualizarCicloCompresor();
-    controlarTemperaturaCultivo();
-    gestionarVentiladoresInteligentes();
-    controlarHumedadCultivo();
-    controlarCO2Cultivo();
-    gestionarFotoperiodo();
-    gestionarResyncNTP();
+    // 2. FILTRO TÉRMICO: Corregido dentro del bloque de muestreo
+    if (err_sht_int == 0 && err_scd == 0) { 
+      calcularTemperaturaAmbiente(temp_int_sup, t_inf);
+    }
+    // 1.2 Capturar el Timestamp Unix real (o 0 si no hay sincronización)
+    bufferCultivo[indiceEscritura].timestamp = hora_sincronizada ? (uint32_t)time(NULL) : 0;
+    // Guardar el resto de variables en el slot de memoria
+    bufferCultivo[indiceEscritura].err_max   = err_max;
+    bufferCultivo[indiceEscritura].err_sht_ext  = err_sht_ext;
+    bufferCultivo[indiceEscritura].err_sht_int  = err_sht_int;
+    bufferCultivo[indiceEscritura].err_scd   = err_scd;
+    bufferCultivo[indiceEscritura].err_pzem  = err_pzem;
+    bufferCultivo[indiceEscritura].temp_comp    = temp_comp; 
+    bufferCultivo[indiceEscritura].temp_ext     = temp_ext; 
+    bufferCultivo[indiceEscritura].hum_ext      = hum_ext;
+    bufferCultivo[indiceEscritura].temp_int_sup = temp_int_sup; 
+    bufferCultivo[indiceEscritura].hum_int_sup  = hum_int_sup;
+    bufferCultivo[indiceEscritura].co2_inf      = co2; 
+    bufferCultivo[indiceEscritura].temp_int_inf = t_inf;
+    bufferCultivo[indiceEscritura].hum_int_inf  = h_inf;
+    bufferCultivo[indiceEscritura].resistencia  = resistencia;
+    bufferCultivo[indiceEscritura].puerta       = estado_Puerta;
+    bufferCultivo[indiceEscritura].voltaje         = pzem_voltaje;
+    bufferCultivo[indiceEscritura].corriente_neta  = pzem_corriente;
+    bufferCultivo[indiceEscritura].potencia_w      = pzem_potencia;
+    bufferCultivo[indiceEscritura].energia_kwh     = pzem_energia;
+    bufferCultivo[indiceEscritura].frecuencia_hz   = pzem_frecuencia;
+    bufferCultivo[indiceEscritura].factor_potencia = pzem_pf;
+    bufferCultivo[indiceEscritura].pwm_vent_lateral   = pwm_vent_lateral;
+    bufferCultivo[indiceEscritura].pwm_vent_superior  = pwm_vent_superior;
+    bufferCultivo[indiceEscritura].pwm_vent_co2       = pwm_vent_co2;
+    bufferCultivo[indiceEscritura].pwm_luz            = pwm_luz;
+    bufferCultivo[indiceEscritura].pwm_auxiliar       = pwm_aux;
+    bufferCultivo[indiceEscritura].humidificador      = estado_humidificador;
+    bufferCultivo[indiceEscritura].compresor          = estado_compresor;
+    bufferCultivo[indiceEscritura].compresor_disponible   = compresor_disponible;
+    bufferCultivo[indiceEscritura].tiempo_ciclo_compresor = tiempo_restante_ciclo;
+    bufferCultivo[indiceEscritura].setpoint_temp      = setpoint_temp;
+    bufferCultivo[indiceEscritura].especie_actual     = especie_actual;
+    bufferCultivo[indiceEscritura].fase_actual        = fase_actual;
+    bufferCultivo[indiceEscritura].hum_setpoint_min   = perfiles[especie_actual][fase_actual].hum_setpoint_min;
+    bufferCultivo[indiceEscritura].hum_setpoint_max   = perfiles[especie_actual][fase_actual].hum_setpoint_max;
+    bufferCultivo[indiceEscritura].co2_setpoint_max   = perfiles[especie_actual][fase_actual].co2_setpoint_max;
+    bufferCultivo[indiceEscritura].luz_fotoperiodo_on = luz_fotoperiodo_on;
+    bufferCultivo[indiceEscritura].hora_sincronizada  = hora_sincronizada;
+    bufferCultivo[indiceEscritura].err_luz            = err_luz;
+    bufferCultivo[indiceEscritura].permiso_nube_humidificador = permiso_nube_humidificador;
+    bufferCultivo[indiceEscritura].permiso_nube_co2           = permiso_nube_co2;
+    bufferCultivo[indiceEscritura].permiso_nube_luz           = permiso_nube_luz;
+    indiceEscritura = (indiceEscritura + 1 ) % MAX_LECTURAS;
+    muestrasDesdeUltimoEnvio++;          // Contador independiente para disparar el envío
+    if (cantidadLecturas < MAX_LECTURAS){
+      cantidadLecturas++;  
+    }            
+    else{
+      bufferLleno = true;
+      Serial.printf("📦 Buffer (Muestra guardada) [%d/%d]\n",
+        cantidadLecturas,
+        MAX_LECTURAS);
+    }
+    if(!bufferLleno){
+      Serial.printf(
+        "📦 Buffer: %d/%d\n",
+        cantidadLecturas,
+        MAX_LECTURAS 
+        );
+    }else{
+      Serial.printf(
+        "🔄 Buffer circular | idx=%d | %d muestras\n",
+        indiceEscritura,
+        cantidadLecturas
+    );
+    }
 
-    unsigned long tiempoActual = millis();
-    
-    // TAREA 1: Muestreo en memoria RAM
-    if (tiempoActual - ultimoMuestreo >= INTERVALO_MUESTREO) { 
-      ultimoMuestreo = tiempoActual;
-      bufferCultivo[indiceEscritura].err_max   = err_max;
-      bufferCultivo[indiceEscritura].err_sht1  = err_sht1;
-      bufferCultivo[indiceEscritura].err_sht2  = err_sht2;
-      bufferCultivo[indiceEscritura].err_scd   = err_scd;
-      bufferCultivo[indiceEscritura].err_pzem  = err_pzem;
-      bufferCultivo[indiceEscritura].temp_comp    = temp_comp; 
-      bufferCultivo[indiceEscritura].temp_ext     = t1; 
-      bufferCultivo[indiceEscritura].hum_ext      = h1;
-      bufferCultivo[indiceEscritura].temp_int_sup = t2; 
-      bufferCultivo[indiceEscritura].hum_int_sup  = h2;
-      bufferCultivo[indiceEscritura].co2_inf      = co2; 
-      bufferCultivo[indiceEscritura].temp_int_inf = t_inf;
-      bufferCultivo[indiceEscritura].hum_int_inf  = h_inf;
-      bufferCultivo[indiceEscritura].resistencia  = resistencia;
-      bufferCultivo[indiceEscritura].puerta       = estado_Puerta;
-      bufferCultivo[indiceEscritura].voltaje         = pzem_voltaje;
-      bufferCultivo[indiceEscritura].corriente_neta  = pzem_corriente;
-      bufferCultivo[indiceEscritura].potencia_w      = pzem_potencia;
-      bufferCultivo[indiceEscritura].energia_kwh     = pzem_energia;
-      bufferCultivo[indiceEscritura].frecuencia_hz   = pzem_frecuencia;
-      bufferCultivo[indiceEscritura].factor_potencia = pzem_pf;
-      bufferCultivo[indiceEscritura].pwm_vent_lateral   = pwm_vent_lateral;
-      bufferCultivo[indiceEscritura].pwm_vent_superior  = pwm_vent_superior;
-      bufferCultivo[indiceEscritura].pwm_vent_co2       = pwm_vent_co2;
-      bufferCultivo[indiceEscritura].pwm_luz            = pwm_luz;
-      bufferCultivo[indiceEscritura].pwm_auxiliar       = pwm_aux;
-      bufferCultivo[indiceEscritura].humidificador      = estado_humidificador;
-      bufferCultivo[indiceEscritura].compresor          = estado_compresor;
-      bufferCultivo[indiceEscritura].compresor_disponible   = compresor_disponible;
-      bufferCultivo[indiceEscritura].tiempo_ciclo_compresor = tiempo_restante_ciclo;
-      bufferCultivo[indiceEscritura].setpoint_temp      = setpoint_temp;
-      bufferCultivo[indiceEscritura].especie_actual     = especie_actual;
-      bufferCultivo[indiceEscritura].fase_actual        = fase_actual;
-      bufferCultivo[indiceEscritura].hum_setpoint_min   = perfiles[especie_actual][fase_actual].hum_min;
-      bufferCultivo[indiceEscritura].hum_setpoint_max   = perfiles[especie_actual][fase_actual].hum_max;
-      bufferCultivo[indiceEscritura].co2_setpoint_max   = perfiles[especie_actual][fase_actual].co2_max;
-      bufferCultivo[indiceEscritura].luz_fotoperiodo_on = luz_fotoperiodo_on;
-      bufferCultivo[indiceEscritura].hora_sincronizada  = hora_sincronizada;
-      bufferCultivo[indiceEscritura].err_luz            = err_luz;
-      bufferCultivo[indiceEscritura].permiso_nube_humidificador = permiso_nube_humidificador;
-      bufferCultivo[indiceEscritura].permiso_nube_co2           = permiso_nube_co2;
-      bufferCultivo[indiceEscritura].permiso_nube_luz           = permiso_nube_luz;
-      indiceEscritura = (indiceEscritura + 1 ) % MAX_LECTURAS;
-      muestrasDesdeUltimoEnvio++;          // Contador independiente para disparar el envío
-      if (cantidadLecturas < MAX_LECTURAS){
-        cantidadLecturas++;  
-      }            
-      else{
-        bufferLleno = true;
-        Serial.printf("📦 Buffer (Muestra guardada) [%d/%d]\n",
-          cantidadLecturas,
-          MAX_LECTURAS);
-      }
-      if(!bufferLleno){
-        Serial.printf(
-          "📦 Buffer: %d/%d\n",
-          cantidadLecturas,
-          MAX_LECTURAS 
+  }
+
+  actualizarCicloCompresor();
+  controlarTemperaturaCultivo();
+  gestionarVentiladoresInteligentes();
+  controlarHumedadCultivo();
+  controlarCO2Cultivo();
+  gestionarFotoperiodo();
+  gestionarResyncNTP();
+  // TAREA 2: Transmisión o Reintento Asíncrono controlado
+  if (muestrasDesdeUltimoEnvio >= MAX_LECTURAS ) {
+      if (millis() - ultimaTransmisionRafaga >= tiempo_reintento_envio_rafaga) {
+          // ultimaTransmisionRafaga = millis();
+          Serial.printf("📤 Intentando transmitir %d muestras...\n",
+            cantidadLecturas
           );
-      }else{
-        Serial.printf(
-          "🔄 Buffer circular | idx=%d | %d muestras\n",
-          indiceEscritura,
-          cantidadLecturas
-      );
-      }
-
-    }
-    
-                        
-    if (err_sht2 == 0 && err_scd == 0) { 
-        calcularTemperaturaAmbiente(t2, t_inf);
-    }
-
-
-    // TAREA 2: Transmisión o Reintento Asíncrono controlado
-    // TAREA 2: Transmisión asíncrona
-    if (muestrasDesdeUltimoEnvio >= MAX_LECTURAS ) {
-        if (millis() - ultimaTransmisionRafaga >= tiempo_reintento_envio_rafaga) {
-           // ultimaTransmisionRafaga = millis();
-            Serial.printf("📤 Intentando transmitir %d muestras...\n",
-              cantidadLecturas
-            );
-            
-            if (WiFi.status() == WL_CONNECTED) {
-                if (enviarRafagaANube()) {
+          
+          if (WiFi.status() == WL_CONNECTED) {
+              if (enviarRafagaANube()) {
+                ultimaTransmisionRafaga = millis();
+                cantidadLecturas = 0; // Vaciado exitoso del buffer
+                bufferLleno = false;
+                muestrasDesdeUltimoEnvio = 0;
+                fallosConsecutivosEnvio = 0;
+                Serial.println("✅ Buffer liberado.");
+              } else {
+                  fallosConsecutivosEnvio++;
                   ultimaTransmisionRafaga = millis();
-                  cantidadLecturas = 0; // Vaciado exitoso del buffer
-                  bufferLleno = false;
-                  muestrasDesdeUltimoEnvio = 0;
-                  fallosConsecutivosEnvio = 0;
-                  Serial.println("✅ Buffer liberado.");
-                } else {
-                    fallosConsecutivosEnvio++;
-                    ultimaTransmisionRafaga = millis();
-                    Serial.printf("⚠️ Error enviando la ráfaga. Intento fallido #%d\n", fallosConsecutivosEnvio);
-                }
-            } else {
-              ultimaTransmisionRafaga = millis();
-              fallosConsecutivosEnvio++;
-              Serial.println("⚠️ Sin Wi-Fi disponible.");
-            }
-        }
-    }
-    delay(10); 
+                  Serial.printf("⚠️ Error enviando la ráfaga. Intento fallido #%d\n", fallosConsecutivosEnvio);
+              }
+          } else {
+            ultimaTransmisionRafaga = millis();
+            fallosConsecutivosEnvio++;
+            Serial.println("⚠️ Sin Wi-Fi disponible.");
+          }
+      }
+  }
+  delay(10); 
 }

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-//import { supabase } from './supabaseClient';
+import { supabase } from './supabaseClient'; // CORREGIDO: Importación activa
 import { 
   ResponsiveContainer, LineChart, Line, AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine,
@@ -20,8 +20,6 @@ function App() {
   const [ultimaActualizacion, setUltimaActualizacion] = useState(null);
   const [especie, setEspecie] = useState('orellana');
   const [fase, setFase] = useState('fructificacion');
-  // URL definitiva de producción en Railway (Sin barra '/' al final)
-  const API_URL = "https://orellanas-backend-production.up.railway.app";
 
   const formatearHoraLocal = (isoString) => {
     try {
@@ -34,17 +32,19 @@ function App() {
 
   const MATRIZ_CULTIVO = {
     orellana: {
+      id_int: 0,
       nombre: "Orellana (Pleurotus ostreatus)",
       fases: {
-        incubacion: { setpoint: 26.0, delta: 2.0, hum_min: 65, hum_max: 75, co2_max: 5000 },
-        fructificacion: { setpoint: 17.5, delta: 1.5, hum_min: 80, hum_max: 95, co2_max: 800 }
+        incubacion: { id_int: 0, setpoint: 26.0, delta: 2.0, hum_min: 65, hum_max: 75, co2_max: 5000 },
+        fructificacion: { id_int: 1, setpoint: 17.5, delta: 1.5, hum_min: 80, hum_max: 95, co2_max: 800 }
       }
     },
     melena_leon: {
+      id_int: 1,
       nombre: "Melena de León (Hericium erinaceus)",
       fases: {
-        incubacion: { setpoint: 22.5, delta: 2.5, hum_min: 65, hum_max: 75, co2_max: 10000 },
-        fructificacion: { setpoint: 19.5, delta: 1.5, hum_min: 85, hum_max: 95, co2_max: 800 }
+        incubacion: { id_int: 0, setpoint: 22.5, delta: 2.5, hum_min: 65, hum_max: 75, co2_max: 10000 },
+        fructificacion: { id_int: 1, setpoint: 19.5, delta: 1.5, hum_min: 85, hum_max: 95, co2_max: 800 }
       }
     }
   };
@@ -92,23 +92,24 @@ function App() {
   }, []);
 
   const ultimoEstado = historialEstado.length > 0 ? historialEstado[historialEstado.length - 1] : {};
-  
-  const ultimaLecturaClima = datosClima && datosClima.length > 0 
+  const ultimaLecturaClima = datosClima.length > 0 
     ? datosClima[datosClima.length - 1] 
     : { temp_int_inf: 0, hum_int_inf: 0, temp_int_sup: 0, hum_int_sup: 0, temp_ext: 0, hum_ext: 0, co2_inf: 0, temp_comp: 0 };
 
-  // CORREGIDO: Eliminada la duplicación caótica de declaraciones
+  // SETPOINTS REALES REPORTADOS POR EL HARDWARE (Evita alertas falsas en UI)
   const setpointVigente = ultimoEstado.setpoint_temp !== undefined ? ultimoEstado.setpoint_temp : 20.0;
+  const humMinVigente = ultimoEstado.hum_setpoint_min !== undefined ? ultimoEstado.hum_setpoint_min : 88.0;
+  const humMaxVigente = ultimoEstado.hum_setpoint_max !== undefined ? ultimoEstado.hum_setpoint_max : 95.0;
+  const co2MaxVigente = ultimoEstado.co2_setpoint_max !== undefined ? ultimoEstado.co2_setpoint_max : 900;
+  
+  // Deltas biológicos dinámicos calculados desde la telemetría activa
+  const limiteMinBiologico = setpointVigente - 1.5; 
+  const limiteMaxBiologico = setpointVigente + 1.5;
 
-  const parametrosOptimos = MATRIZ_CULTIVO[especie].fases[fase];
-  const limiteMinBiologico = parametrosOptimos.setpoint - parametrosOptimos.delta;
-  const limiteMaxBiologico = parametrosOptimos.setpoint + parametrosOptimos.delta;
-  const humMinOptima = parametrosOptimos.hum_min;
-  const humMaxOptima = parametrosOptimos.hum_max;
-  const co2MaxOptimo = parametrosOptimos.co2_max;
-
+  // OPTIMIZACIÓN O(N): Indexar datos climáticos usando un Map en lugar de búsquedas anidadas repetitivas
+  const climaMap = new Map(datosClima.map(cli => [cli.created_at, cli]));
   const datosMaquinaria = historialEstado.map(est => {
-    const climaAsociado = datosClima.find(cli => cli.created_at === est.created_at) || {};
+    const climaAsociado = climaMap.get(est.created_at) || {};
     return {
       hora: est.hora,
       compresor_activo: est.compresor_binario,
@@ -195,12 +196,22 @@ function App() {
         <div style={{ marginLeft: 'auto', alignSelf: 'flex-end' }}>
           <button 
             onClick={async () => {
+              const pOptimos = MATRIZ_CULTIVO[especie].fases[fase];
+              // CORREGIDO: Se inyectan absolutamente todos los parámetros de control críticos a la base de datos
               const { error } = await supabase
                 .from('controles')
-                .update({ setpoint_temp: parametrosOptimos.setpoint })
+                .update({ 
+                  setpoint_temp: pOptimos.setpoint,
+                  hum_setpoint_min: pOptimos.hum_min,
+                  hum_setpoint_max: pOptimos.hum_max,
+                  co2_setpoint_max: pOptimos.co2_max,
+                  especie: MATRIZ_CULTIVO[especie].id_int,
+                  fase: pOptimos.id_int
+                })
                 .eq('id', 1);
+                
               if (error) alert('Error al actualizar setpoint: ' + error.message);
-              else alert(`Sistema configurado para ${MATRIZ_CULTIVO[especie].nombre} en fase de ${fase}. Setpoint enviado: ${parametrosOptimos.setpoint}°C`);
+              else alert(`Parámetros mecánicos completos aplicados para ${MATRIZ_CULTIVO[especie].nombre} en fase de ${fase}.`);
             }}
             style={{ backgroundColor: '#2b6cb0', color: 'white', border: 'none', padding: '9px 16px', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
           >
@@ -214,13 +225,11 @@ function App() {
           <section style={{ marginBottom: '24px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
               <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Inf." valor={`${ultimaLecturaClima.temp_int_inf}°C`} valorNumerico={ultimaLecturaClima.temp_int_inf} minOptimo={limiteMinBiologico} maxOptimo={limiteMaxBiologico} colorIcono="#e53e3e" bgIcono="#fff5f5" />
-              {/* CORREGIDO: Nombre correcto de la etiqueta */}
               <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Interior Sup." valor={`${ultimaLecturaClima.temp_int_sup}°C`} valorNumerico={ultimaLecturaClima.temp_int_sup} minOptimo={limiteMinBiologico} maxOptimo={limiteMaxBiologico} colorIcono="#ed8936" bgIcono="#fffaf0" />
-              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={humMinOptima} maxOptimo={humMaxOptima} colorIcono="#3182ce" bgIcono="#ebf8ff" />
-              {/* CORREGIDO: Corregido "Superior Inf." a "Interior Sup." para evitar confusiones */}
-              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={humMinOptima} maxOptimo={humMaxOptima} colorIcono="#805ad5" bgIcono="#faf5ff" />
+              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Inf." valor={`${ultimaLecturaClima.hum_int_inf}%`} valorNumerico={ultimaLecturaClima.hum_int_inf} minOptimo={humMinVigente} maxOptimo={humMaxVigente} colorIcono="#3182ce" bgIcono="#ebf8ff" />
+              <CardIndicador icono={<Droplets size={18} />} titulo="Hum. Interior Sup." valor={`${ultimaLecturaClima.hum_int_sup}%`} valorNumerico={ultimaLecturaClima.hum_int_sup} minOptimo={humMinVigente} maxOptimo={humMaxVigente} colorIcono="#805ad5" bgIcono="#faf5ff" />
               <CardIndicador icono={<Thermometer size={18} />} titulo="Temp. Exterior" valor={`${ultimaLecturaClima.temp_ext}°C`} colorIcono="#4a5568" bgIcono="#edf2f7" />
-              <CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={co2MaxOptimo} colorIcono="#319795" bgIcono="#e6fffa" />
+              <CardIndicador icono={<Wind size={18} />} titulo="Concentración CO₂" valor={`${ultimaLecturaClima.co2_inf} ppm`} valorNumerico={ultimaLecturaClima.co2_inf} minOptimo={0} maxOptimo={co2MaxVigente} colorIcono="#319795" bgIcono="#e6fffa" />
             </div>
           </section>
 
@@ -236,24 +245,9 @@ function App() {
                     <Tooltip contentStyle={{ fontSize: '12px' }} />
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
                     
-                    <ReferenceLine 
-                      y={setpointVigente} 
-                      stroke="#3182ce" 
-                      strokeDasharray="4 4" 
-                      label={{ value: `Target (${setpointVigente}°C)`, fill: '#3182ce', fontSize: 10, position: 'insideTopLeft' }} 
-                    />
-                    <ReferenceLine 
-                      y={limiteMaxBiologico} 
-                      stroke="#e53e3e" 
-                      strokeDasharray="3 3" 
-                      label={{ value: `Máx Biológico (${limiteMaxBiologico}°C)`, fill: '#e53e3e', fontSize: 9, position: 'insideTopRight' }} 
-                    />
-                    <ReferenceLine 
-                      y={limiteMinBiologico} 
-                      stroke="#ed8936" 
-                      strokeDasharray="3 3" 
-                      label={{ value: `Mín Biológico (${limiteMinBiologico}°C)`, fill: '#ed8936', fontSize: 9, position: 'insideBottomRight' }} 
-                    />
+                    <ReferenceLine y={setpointVigente} stroke="#3182ce" strokeDasharray="4 4" label={{ value: `Target (${setpointVigente}°C)`, fill: '#3182ce', fontSize: 10, position: 'insideTopLeft' }} />
+                    <ReferenceLine y={limiteMaxBiologico} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: `Máx Biológico (${limiteMaxBiologico}°C)`, fill: '#e53e3e', fontSize: 9, position: 'insideTopRight' }} />
+                    <ReferenceLine y={limiteMinBiologico} stroke="#ed8936" strokeDasharray="3 3" label={{ value: `Mín Biológico (${limiteMinBiologico}°C)`, fill: '#ed8936', fontSize: 9, position: 'insideBottomRight' }} />
 
                     <Line type="natural" dataKey="temp_int_inf" name="Inf." stroke="#e53e3e" strokeWidth={2} dot={false} />
                     <Line type="natural" dataKey="temp_int_sup" name="Sup." stroke="#ed8936" strokeWidth={2} dot={false} />
@@ -273,7 +267,7 @@ function App() {
                     <YAxis domain={[0, 100]} tick={{fontSize: 10}} stroke="#718096" />
                     <Tooltip contentStyle={{ fontSize: '12px' }} />
                     <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
-                    <ReferenceLine y={humMinOptima} stroke="#90cdf4" strokeDasharray="4 4" label={{ value: `Mín ${humMinOptima}%`, fill: '#3182ce', fontSize: 9 }} />
+                    <ReferenceLine y={humMinVigente} stroke="#90cdf4" strokeDasharray="4 4" label={{ value: `Mín ${humMinVigente}%`, fill: '#3182ce', fontSize: 9 }} />
                     <Line type="natural" dataKey="hum_int_inf" name="Inf." stroke="#3182ce" strokeWidth={2} dot={false} />
                     <Line type="natural" dataKey="hum_int_sup" name="Sup." stroke="#805ad5" strokeWidth={2} dot={false} />
                     <Line type="natural" dataKey="hum_ext" name="Ext." stroke="#a0aec0" strokeWidth={1.5} strokeDasharray="4 4" dot={false} />
@@ -298,7 +292,7 @@ function App() {
                   <XAxis dataKey="hora" tick={{fontSize: 10}} stroke="#718096" />
                   <YAxis domain={['auto', 'auto']} tick={{fontSize: 10}} stroke="#718096" />
                   <Tooltip contentStyle={{ fontSize: '12px' }} />
-                  <ReferenceLine y={co2MaxOptimo} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: `Límite Fisiológico (${co2MaxOptimo} ppm)`, fill: '#c53030', fontSize: 10, position: 'top' }} />
+                  <ReferenceLine y={co2MaxVigente} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: `Límite Fisiológico (${co2MaxVigente} ppm)`, fill: '#c53030', fontSize: 10, position: 'top' }} />
                   <Area type="natural" dataKey="co2_inf" name="CO₂ Interior" stroke="#319795" fillOpacity={1} fill="url(#colorCo2)" strokeWidth={2} />
                 </AreaChart>
               </ResponsiveContainer>
@@ -351,7 +345,7 @@ function App() {
                   <Legend verticalAlign="top" height={32} iconSize={10} wrapperStyle={{ fontSize: '12px' }} />
                   <ReferenceLine yAxisId="izq" y={55} stroke="#e53e3e" strokeDasharray="3 3" label={{ value: 'Umbral Crítico (55°C)', fill: '#e53e3e', fontSize: 10, position: 'bottom' }} />
                   <Area yAxisId="der" type="step" dataKey="compresor_activo" name="Estado Compresor" fill="#ebf8ff" stroke="#3182ce" strokeWidth={1} fillOpacity={0.6} />
-                  <Line yAxisId="izq" type="monotone" dataKey="temp_compresor" name="Temp. Compresor" stroke="#2d3748" strokeWidth={2.5} dot={false} connectNulls={false} />
+                  <Line yAxisId="izq" type="monotone" dataKey="temp_compresor" name="Temp. Compresor" stroke="#2d3748" strokeWidth={2.5} dot={false} />
                 </ComposedChart>
               </ResponsiveContainer>
             </div>
@@ -373,12 +367,11 @@ function App() {
             <div style={{ backgroundColor: 'white', padding: '20px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
               <h3 style={{ fontSize: '14px', fontWeight: '600', margin: '0 0 16px 0', display: 'flex', alignItems: 'center', gap: '8px' }}><ShieldCheck size={18} color="#38a169"/> Integridad del Hardware</h3>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {['err_max', 'err_sht1', 'err_sht2', 'err_scd', 'err_pzem'].map((sensor) => {
+                {['err_max', 'err_sht_ext', 'err_sht_int', 'err_scd', 'err_pzem'].map((sensor) => {
                   const tieneError = ultimoEstado[sensor] > 0;
                   return (
-                    /* CORREGIDO: justifyContent válido en lugar de justifyBetween */
                     <div key={sensor} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderRadius: '8px', backgroundColor: tieneError ? '#fff5f5' : '#f0fff4', border: tieneError ? '1px solid #feb2b2' : '1px solid #c6f6d5', fontSize: '12px' }}>
-                      <span style={{ fontWeight: '600', color: tieneError ? '#9b2c2c' : '#22543d', textTransform: 'uppercase' }}>{sensor.replace('err_', 'Sensor ')}</span>
+                      <span style={{ fontWeight: '600', color: tieneError ? '#9b2c2c' : '#22543d', textTransform: 'uppercase' }}>{sensor.replace('err_', ' ')}</span>
                       {tieneError ? (
                         <span style={{ color: '#e53e3e', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}><AlertTriangle size={12}/> Falla ({ultimoEstado[sensor]})</span>
                       ) : (

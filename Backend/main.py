@@ -52,6 +52,76 @@ async def verificar_api_key(x_api_key: str = Header(None)):
         raise HTTPException(status_code=401, detail="API key inválida o ausente")
 
 
+def _modo_a_int(valor) -> int:
+    """Convierte modo 'auto'/'manual' a 0/1 para el firmware."""
+    if valor is None:
+        return 0
+    if isinstance(valor, str):
+        return 1 if valor.lower() == "manual" else 0
+    return 1 if valor else 0
+
+
+def construir_respuesta_control(control: dict, status: str = "success") -> dict:
+    """
+    Arma la respuesta JSON de controles que consume el ESP32.
+    Mantiene compatibilidad con los campos existentes en main.py y agrega
+    setpoints de humedad/CO2, fotoperiodo y modos auto/manual.
+    """
+    respuesta = {
+        "status": status,
+        "set_compresor": 1 if control.get("set_compresor", True) else 0,
+        "set_vent_lateral": control.get("set_vent_lateral", 0),
+        "set_vent_superior": control.get("set_vent_superior", 0),
+        "setpoint_temp": control.get("setpoint_temp") if control.get("setpoint_temp") is not None else 20.0,
+        "permiso_nube_humidificador": 1 if control.get("permiso_nube_humidificador", True) else 0,
+        "permiso_nube_co2": 1 if control.get("permiso_nube_co2", True) else 0,
+        "permiso_nube_luz": 1 if control.get("permiso_nube_luz", True) else 0,
+        "hum_setpoint_min": control.get("hum_setpoint_min") if control.get("hum_setpoint_min") is not None else 88.0,
+        "hum_setpoint_max": control.get("hum_setpoint_max") if control.get("hum_setpoint_max") is not None else 95.0,
+        "co2_setpoint_max": control.get("co2_setpoint_max") if control.get("co2_setpoint_max") is not None else 900,
+        "hora_luz_on": control.get("hora_luz_on") if control.get("hora_luz_on") is not None else 6,
+        "hora_luz_off": control.get("hora_luz_off") if control.get("hora_luz_off") is not None else 18,
+        "set_humidificador": 1 if control.get("set_humidificador") else 0,
+        "set_luz": control.get("set_luz", 0) or 0,
+        "modo_compresor": _modo_a_int(control.get("modo_compresor")),
+        "modo_humidificador": _modo_a_int(control.get("modo_humidificador")),
+        "modo_co2": _modo_a_int(control.get("modo_co2")),
+        "modo_luz": _modo_a_int(control.get("modo_luz")),
+        "compresor_directo": 1 if control.get("compresor_directo") else 0,
+    }
+
+    especie_val = control.get("especie")
+    fase_val = control.get("fase")
+    if especie_val is not None and fase_val is not None:
+        respuesta["especie"] = especie_val
+        respuesta["fase"] = fase_val
+
+    return respuesta
+
+
+VALORES_FALLBACK_CONTROL = construir_respuesta_control({
+    "set_compresor": True,
+    "set_vent_lateral": 0,
+    "set_vent_superior": 0,
+    "setpoint_temp": 20.0,
+    "permiso_nube_humidificador": True,
+    "permiso_nube_co2": True,
+    "permiso_nube_luz": True,
+    "hum_setpoint_min": 88.0,
+    "hum_setpoint_max": 95.0,
+    "co2_setpoint_max": 900,
+    "hora_luz_on": 6,
+    "hora_luz_off": 18,
+    "set_humidificador": False,
+    "set_luz": 0,
+    "modo_compresor": "auto",
+    "modo_humidificador": "auto",
+    "modo_co2": "auto",
+    "modo_luz": "auto",
+    "compresor_directo": False,
+}, status="fallback")
+
+
 # =====================================================================
 # 2. MODELOS DE VALIDACIÓN DE DATOS (PYDANTIC) - REGISTRO TOTAL
 # =====================================================================
@@ -59,9 +129,10 @@ async def verificar_api_key(x_api_key: str = Header(None)):
 # SUB-MODELO: Representa la foto completa del sistema tomada cada 5 segundos
 class RegistroCompletoHistorial(BaseModel):
     # Diagnóstico (Errores)
+    timestamp: Optional[int] = 0  # Unix Epoch enviado por el ESP32 (0 si no tiene hora)
     err_max: int
-    err_sht1: int  
-    err_sht2: int  
+    err_sht_ext: int  
+    err_sht_int: int  
     err_scd: int
     err_pzem: int
 
@@ -123,22 +194,7 @@ class PaqueteRafaga(BaseModel):
 async def recibir_datos(data: PaqueteRafaga): 
     # Valores por defecto de contingencia (Fallback seguro en caso de error)
     # Se inicializan asumiendo un estado neutro y seguro para el cultivo
-    valores_fallback = {
-        "status": "fallback",
-        "set_compresor": 1,         # Arranca en True para control local por defecto si la nube falla
-        "set_vent_lateral": 0,
-        "set_vent_superior": 0,
-        "setpoint_temp": 20.0,      # Tu zona de confort biológico base
-        # Humedad/CO2/luz ahora son lazos locales en el firmware: el fallback
-        # los deja PERMITIDOS por defecto para que el control local siga
-        # autorregulándose aunque la nube esté caída, igual que el compresor.
-        # No se incluyen "especie"/"fase": si no están ambas presentes, el
-        # firmware simplemente mantiene el perfil que ya tenía cargado
-        # localmente — es el comportamiento más seguro ante una nube caída.
-        "permiso_nube_humidificador": 1,
-        "permiso_nube_co2": 1,
-        "permiso_nube_luz": 1
-    }
+    valores_fallback = VALORES_FALLBACK_CONTROL.copy()
 
     try:
         # VERIFICACIÓN DE DUPLICADOS: el firmware reintenta con el mismo
@@ -176,9 +232,12 @@ async def recibir_datos(data: PaqueteRafaga):
         for i, lectura in enumerate(data.historial_lecturas):
             # NOTA DE TIMING: Sigue siendo un cálculo inverso aproximado, pero garantizamos que 
             # las estructuras locales se guarden bajo la misma consistencia temporal en Supabase.
-            segundos_atras = (total_lecturas - 1 - i) * 5
-            marca_tiempo = (ahora_utc - timedelta(seconds=segundos_atras)).isoformat()
-            
+            if lectura.timestamp and lectura.timestamp > 0:
+                marca_tiempo = datetime.fromtimestamp(lectura.timestamp, tz=ZoneInfo("UTC")).isoformat()
+            else:
+                segundos_atras = (total_lecturas - 1 - i) * 5
+                marca_tiempo = (ahora_utc - timedelta(seconds=segundos_atras)).isoformat()
+                
             lista_sensores.append({
                 "created_at": marca_tiempo,
                 "temp_comp": lectura.temp_comp,
@@ -205,8 +264,8 @@ async def recibir_datos(data: PaqueteRafaga):
             lista_estado.append({
                 "created_at": marca_tiempo,
                 "err_max": lectura.err_max,
-                "err_sht1": lectura.err_sht1,
-                "err_sht2": lectura.err_sht2,
+                "err_sht_ext": lectura.err_sht_ext,
+                "err_sht_int": lectura.err_sht_int,
                 "err_scd": lectura.err_scd,
                 "err_pzem": lectura.err_pzem,
                 "vent_lateral": lectura.vent_lateral,        
@@ -277,25 +336,7 @@ async def recibir_datos(data: PaqueteRafaga):
             # salta explícitamente al bloque else/fallback para inyectar las llaves obligatorias.
             if res_control.data and len(res_control.data) > 0:
                 control = res_control.data[0]
-                respuesta = {
-                    "status": "success",
-                    "set_compresor": 1 if control.get("set_compresor") else 0,
-                    "set_vent_lateral": control.get("set_vent_lateral", 0),
-                    "set_vent_superior": control.get("set_vent_superior", 0),
-                    "setpoint_temp": control.get("setpoint_temp") if control.get("setpoint_temp") is not None else 20.0,
-                    "permiso_nube_humidificador": 1 if control.get("permiso_nube_humidificador", True) else 0,
-                    "permiso_nube_co2": 1 if control.get("permiso_nube_co2", True) else 0,
-                    "permiso_nube_luz": 1 if control.get("permiso_nube_luz", True) else 0,
-                }
-                # especie/fase solo se incluyen si AMBAS están presentes y no son
-                # nulas en la fila de controles — el firmware exige las dos
-                # juntas antes de aplicar cualquier cambio de perfil.
-                especie_val = control.get("especie")
-                fase_val = control.get("fase")
-                if especie_val is not None and fase_val is not None:
-                    respuesta["especie"] = especie_val
-                    respuesta["fase"] = fase_val
-                return respuesta
+                return construir_respuesta_control(control, status="success")
             else:
                 print("⚠️ Fila id=1 no encontrada en la tabla controles. Aplicando valores seguros por defecto.")
                 return valores_fallback
