@@ -1,46 +1,58 @@
 import { createTheme } from '@mui/material/styles';
 
-export const industrialTheme = createTheme({
+export const theme = createTheme({
   palette: {
     mode: 'dark',
     background: {
-      default: '#0f1419', // Fondo SCADA principal
-      paper: '#1a2332',   // Fondo de tarjetas y paneles
+      default: '#0f1419', // Fondo SCADA ultra oscuro
+      paper: '#1a2332',   // Tarjetas de datos y paneles
     },
     primary: {
-      main: '#3b82f6',    // Azul SCADA para acciones de nivel 1
+      main: '#3b82f6',    // Azul de control
     },
     success: {
-      main: '#22c55e',    // Estado nominal/activo
+      main: '#22c55e',    // Funcionamiento nominal
     },
     warning: {
-      main: '#f59e0b',    // Fuera de rango leve o degradado
+      main: '#f59e0b',    // Degradados / Límites excedidos leves
     },
     error: {
-      main: '#ef4444',    // Alarma activa, desconexión
+      main: '#ef4444',    // Fallas críticas de hardware / Desconexión
     },
     text: {
-      primary: '#e2e8f0',  // Lectura principal de datos
-      secondary: '#94a3b8',// Etiquetas y metadatos
+      primary: '#e2e8f0', // Lectura principal
+      secondary: '#94a3b8', // Metadatos, labels y unidades
     },
   },
   typography: {
-    fontFamily: '"JetBrains Mono", "Roboto Mono", "Fira Code", monospace',
-    h1: { fontSize: '2rem', fontWeight: 700, letterSpacing: '-0.05em' },
-    h2: { fontSize: '1.5rem', fontWeight: 600 },
-    h6: { fontSize: '1rem', fontWeight: 600 },
-    body1: { fontSize: '0.875rem' },
-    body2: { fontSize: '0.75rem' },
+    fontFamily: '"JetBrains Mono", "Roboto Mono", "SF Mono", monospace',
+    h5: { fontWeight: 700, letterSpacing: '-0.025em' },
+    h6: { fontWeight: 600, letterSpacing: '-0.015em' },
+    subtitle2: { fontWeight: 500 },
+    body2: { lineHeight: 1.6 },
   },
   components: {
     MuiCard: {
       styleOverrides: {
         root: {
           backgroundImage: 'none',
+          backgroundColor: '#1a2332',
+          border: '1px solid #2d3b50',
           borderRadius: 8,
-          border: '1px solid #2d3748',
+        },
+      },
+    },
+    MuiAppBar: {
+      styleOverrides: {
+        root: {
+          backgroundImage: 'none',
+          backgroundColor: '#1a2332',
+          borderBottom: '1px solid #2d3b50',
         },
       },
     },
   },
 });
+
+// Exportación doble para blindar la compilación ante imports mixtos
+export default theme;

@@ -1,21 +1,28 @@
 import React, { useState } from 'react';
 import { ThemeProvider, Box, CssBaseline, AppBar, Toolbar, Typography, Button, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, BottomNavigation, BottomNavigationAction, Paper, useMediaQuery } from '@mui/material';
 import { LayoutDashboard, CloudSun, Zap, Sliders, ShieldAlert, LogOut, LogIn } from 'lucide-react';
-import { theme } from './theme';
-import { AuthProvider, useAuth } from './context/AuthContext'; // Mantén tu importación original de AuthContext
+
+// Corrección de la ruta del Tema
+import { theme } from './theme/industrialTheme'; 
+
+// Importación de Contextos
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { TelemetryProvider, useTelemetry } from './context/TelemetryContext';
 
-// Importación de las Vistas (Desarrollaremos la DashboardView primero, deja las otras declaradas de forma básica temporalmente)
+// Importación de las 6 Vistas reales según tu árbol de archivos
 import { DashboardView } from './views/DashboardView';
-import { ControlView } from './views/ControlView'; // Asegura tener placeholders vacíos o tus vistas actuales
+import { ClimaView } from './views/ClimaView';
+import { EnergiaView } from './views/EnergiaView';
+import { ControlView } from './views/ControlView';
+import { DiagnosticoView } from './views/DiagnosticoView';
 import { LoginView } from './views/LoginView';
 
 const viewsList = [
   { id: 0, label: 'Dashboard', icon: <LayoutDashboard size={20} />, component: <DashboardView /> },
-  { id: 1, label: 'Clima', icon: <CloudSun size={20} />, component: <Box sx={{ p: 3 }}>[Vista Clima - Siguiente Entrega]</Box> },
-  { id: 2, label: 'Energía', icon: <Zap size={20} />, component: <Box sx={{ p: 3 }}>[Vista Energía - Siguiente Entrega]</Box> },
+  { id: 1, label: 'Clima', icon: <CloudSun size={20} />, component: <ClimaView /> },
+  { id: 2, label: 'Energía', icon: <Zap size={20} />, component: <EnergiaView /> },
   { id: 3, label: 'Controles', icon: <Sliders size={20} />, component: <ControlView /> },
-  { id: 4, label: 'Diagnóstico', icon: <ShieldAlert size={20} />, component: <Box sx={{ p: 3 }}>[Vista Diagnóstico - Siguiente Entrega]</Box> },
+  { id: 4, label: 'Diagnóstico', icon: <ShieldAlert size={20} />, component: <DiagnosticoView /> },
 ];
 
 const DRAWER_WIDTH = 240;
@@ -30,7 +37,7 @@ function LayoutShell() {
 
   // Evaluación del estado de conexión inferida por antigüedad de la última telemetría
   const getConnectionStatus = () => {
-    if (!latestReading || !latestReading.created_at) return { label: 'Desconocido', color: 'text.secondary' };
+    if (!latestReading || !latestReading.created_at) return { label: 'DESCONOCIDO', color: 'text.secondary' };
     const diffMin = (new Date() - new Date(latestReading.created_at)) / 1000 / 60;
     
     if (diffMin < 10) return { label: 'ONLINE', color: 'success.main' };
@@ -133,7 +140,7 @@ function LayoutShell() {
                   variant="contained" 
                   size="small" 
                   startIcon={<LogIn size={14} />} 
-                  onClick={() => setActiveTab(3)} // Redirigir a Controles donde vive el login
+                  onClick={() => setActiveTab(3)} // Redirige a la pestaña que use autenticación (ej: Controles/Login)
                 >
                   {!isMobile && 'Acceso'}
                 </Button>

@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { supabase } from '../supabaseClient'; // Asegura que esta ruta apunte a tu cliente de Supabase
-
+import { supabase } from '../supabaseClient';
 const TelemetryContext = createContext();
 
 export function TelemetryProvider({ children }) {
