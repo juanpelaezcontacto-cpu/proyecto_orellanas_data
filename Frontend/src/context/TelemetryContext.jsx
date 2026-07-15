@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { supabase } from '../supabaseClient';
 
 const TelemetryContext = createContext();
@@ -7,7 +7,22 @@ export function TelemetryProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [historicalData, setHistoricalData] = useState([]);
   const [latestReading, setLatestReading] = useState(null);
+  const [controlState, setControlState] = useState(null);
   const [timeRange, setTimeRange] = useState(12); // Ventana de visualización por defecto
+
+  const fetchControlState = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('controles')
+        .select('*')
+        .eq('id', 1)
+        .maybeSingle();
+      if (error) throw error;
+      setControlState(data ?? null);
+    } catch (error) {
+      console.error('Error al leer la tabla controles:', error.message);
+    }
+  };
 
   const fetchTelemetry = async () => {
     try {
@@ -100,15 +115,23 @@ export function TelemetryProvider({ children }) {
     }
   };
 
+  // Vuelve a cargar telemetría Y controlState — usado por ControlView tras guardar,
+  // y por cualquier vista que necesite forzar una lectura fresca de ambos.
+  const refetch = async () => {
+    await Promise.all([fetchTelemetry(), fetchControlState()]);
+  };
+
   useEffect(() => {
     fetchTelemetry();
-    
-    // Suscripción de tiempo real a los tres hilos
+    fetchControlState();
+
+    // Suscripción de tiempo real a los tres hilos de telemetría + la tabla de controles
     const channel = supabase
       .channel('schema-db-changes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lecturas_sensores' }, () => fetchTelemetry())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'monitoreo_energetico' }, () => fetchTelemetry())
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'estado_sistema' }, () => fetchTelemetry())
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'controles' }, () => fetchControlState())
       .subscribe();
 
     return () => {
@@ -116,8 +139,35 @@ export function TelemetryProvider({ children }) {
     };
   }, [timeRange]);
 
+  // Análisis derivado de las últimas 20 muestras — mismo criterio que ya usa
+  // DashboardView internamente, pero expuesto aquí para que DiagnosticoView
+  // (y cualquier otra vista) no tenga que recalcularlo por su cuenta.
+  const analysis = useMemo(() => {
+    if (!historicalData || historicalData.length === 0) {
+      return { cycles: { humidificador: 0, compresor: 0 } };
+    }
+    const recent = historicalData.slice(-20);
+    let humSwitches = 0;
+    let compSwitches = 0;
+    for (let i = 1; i < recent.length; i++) {
+      if (recent[i].humidificador !== recent[i - 1].humidificador) humSwitches++;
+      if (recent[i].compresor !== recent[i - 1].compresor) compSwitches++;
+    }
+    return { cycles: { humidificador: humSwitches, compresor: compSwitches } };
+  }, [historicalData]);
+
   return (
-    <TelemetryContext.Provider value={{ historicalData, latestReading, loading, timeRange, setTimeRange, reloadData: fetchTelemetry }}>
+    <TelemetryContext.Provider value={{
+      historicalData,
+      latestReading,
+      controlState,
+      analysis,
+      loading,
+      timeRange,
+      setTimeRange,
+      reloadData: fetchTelemetry,
+      refetch,
+    }}>
       {children}
     </TelemetryContext.Provider>
   );

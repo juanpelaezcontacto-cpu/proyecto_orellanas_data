@@ -76,12 +76,12 @@ export const ClimaView = () => {
                 <YAxis yAxisId="gradient" orientation="right" domain={[-5, 5]} stroke="#94a3b8" style={{ fontSize: 10 }} />
                 <Tooltip labelFormatter={(label) => new Date(label).toLocaleString('es-CO')} contentStyle={{ backgroundColor: '#1a2332', border: '1px solid #2d3748' }} />
                 <Legend verticalAlign="top" height={36} />
-                {latestReading.temp_setpoint_max != null && (
-                  <ReferenceLine yAxisId="temp" y={latestReading.temp_setpoint_max} stroke="#3b82f6" strokeDasharray="5 5" label={{ value: `Límite: ${latestReading.temp_setpoint_max}°C`, fill: '#3b82f6', fontSize: 10, position: 'insideTopLeft' }} />
+                {latestReading.setpoint_temp != null && (
+                  <ReferenceLine yAxisId="temp" y={latestReading.setpoint_temp} stroke="#3b82f6" strokeDasharray="5 5" label={{ value: `Límite: ${latestReading.setpoint_temp}°C`, fill: '#3b82f6', fontSize: 10, position: 'insideTopLeft' }} />
                 )}
                 <Line yAxisId="temp" type="monotone" dataKey="temp_inf" name="Temp Inferior (Control)" stroke="#ef4444" strokeWidth={2} dot={false} />
                 <Line yAxisId="temp" type="monotone" dataKey="temp_sup" name="Temp Superior (Estrato)" stroke="#ed8936" strokeWidth={1.5} dot={false} />
-                <Bar yAxisId="gradient" dataKey={(d) => (d.temp_sup != null && d.temp_inf != null) ? d.temp_sup - d.temp_inf : null} name="Gradiente ΔT (Sup - Inf)" fill="#3b82f6" opacity={0.2} />
+                <Bar yAxisId="gradient" dataKey={(d) => (d.temp_int_sup != null && d.temp_int_inf != null) ? d.temp_int_sup - d.temp_int_inf : null} name="Gradiente ΔT (Sup - Inf)" fill="#3b82f6" opacity={0.2} />
               </ComposedChart>
             </ResponsiveContainer>
           </Box>
@@ -109,9 +109,9 @@ export const ClimaView = () => {
                 {latestReading.hum_setpoint_max != null && (
                   <ReferenceLine yAxisId="hum" y={latestReading.hum_setpoint_max} stroke="#22c55e" strokeDasharray="3 3" label={{ value: `Máx: ${latestReading.hum_setpoint_max}%`, fill: '#22c55e', fontSize: 10 }} />
                 )}
-                <Line yAxisId="hum" type="monotone" dataKey="hum_inf" name="Humedad Inferior (Control)" stroke="#22c55e" strokeWidth={2} dot={false} />
-                <Line yAxisId="hum" type="monotone" dataKey="hum_sup" name="Humedad Superior" stroke="#8b5cf6" strokeWidth={1.5} dot={false} />
-                <Bar yAxisId="gradient" dataKey={(d) => (d.hum_sup != null && d.hum_inf != null) ? d.hum_sup - d.hum_inf : null} name="Gradiente ΔH" fill="#8b5cf6" opacity={0.2} />
+                <Line yAxisId="hum" type="monotone" dataKey="hum_int_inf" name="Humedad Inferior (Control)" stroke="#22c55e" strokeWidth={2} dot={false} />
+                <Line yAxisId="hum" type="monotone" dataKey="hum_int_sup" name="Humedad Superior" stroke="#8b5cf6" strokeWidth={1.5} dot={false} />
+                <Bar yAxisId="gradient" dataKey={(d) => (d.hum_int_sup != null && d.hum_int_inf != null) ? d.hum_int_sup - d.hum_int_inf : null} name="Gradiente ΔH" fill="#8b5cf6" opacity={0.2} />
               </ComposedChart>
             </ResponsiveContainer>
           </Box>

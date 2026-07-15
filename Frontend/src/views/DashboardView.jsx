@@ -53,8 +53,8 @@ export function DashboardView() {
 
     // C. Gradiente Vertical
     const latest = latestReading || recent[recent.length - 1];
-    const tempGrad = (latest.temp_sup ?? 0) - (latest.temp_inf ?? 0);
-    const humGrad = (latest.hum_sup ?? 0) - (latest.hum_inf ?? 0);
+    const tempGrad = (latest.temp_int_sup ?? 0) - (latest.temp_int_inf ?? 0);
+    const humGrad = (latest.hum_int_sup ?? 0) - (latest.hum_int_inf ?? 0);
 
     return { co2Stress, humSwitches, compSwitches, tempGrad, humGrad };
   }, [historicalData, latestReading]);
@@ -79,8 +79,8 @@ export function DashboardView() {
     if (latestReading.co2_inf > latestReading.co2_setpoint_max) {
       alarms.push({ title: 'EXCESO_CO2', desc: `CO2 actual (${latestReading.co2_inf} ppm) supera el setpoint del perfil (${latestReading.co2_setpoint_max} ppm).`, type: 'warning' });
     }
-    if (latestReading.hum_inf < latestReading.hum_setpoint_min || latestReading.hum_inf > latestReading.hum_setpoint_max) {
-      alarms.push({ title: 'HUMEDAD_FUERA_DE_RANGO', desc: `Humedad actual (${latestReading.hum_inf}%) fuera de límites del perfil.`, type: 'warning' });
+    if (latestReading.hum_int_inf < latestReading.hum_setpoint_min || latestReading.hum_int_inf > latestReading.hum_setpoint_max) {
+      alarms.push({ title: 'HUMEDAD_FUERA_DE_RANGO', desc: `Humedad actual (${latestReading.hum_int_inf}%) fuera de límites del perfil.`, type: 'warning' });
     }
     if (latestReading.puerta === 1) {
       alarms.push({ title: 'PUERTA_ABIERTA', desc: 'La puerta de la cámara se encuentra abierta.', type: 'warning' });
@@ -104,8 +104,8 @@ export function DashboardView() {
     if (!historicalData || historicalData.length === 0) return { temp: [], hum: [], co2: [] };
     const recent = historicalData.slice(-25); // Ventana de 25 muestras para mejor resolución visual
     return {
-      temp: recent.map(d => ({ value: d.temp_inf })),
-      hum: recent.map(d => ({ value: d.hum_inf })),
+      temp: recent.map(d => ({ value: d.temp_int_inf })),
+      hum: recent.map(d => ({ value: d.hum_int_inf })),
       co2: recent.map(d => ({ value: d.co2_inf }))
     };
   }, [historicalData]);
@@ -228,11 +228,11 @@ export function DashboardView() {
                 </Typography>
               </Box>
               <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: 'monospace', color: '#e2e8f0', my: 0.5 }}>
-                {latestReading.temp_inf != null ? `${Number(latestReading.temp_inf).toFixed(1)}` : '---'}
+                {latestReading.temp_int_inf != null ? `${Number(latestReading.temp_int_inf).toFixed(1)}` : '---'}
                 <span style={{ fontSize: '1rem', color: '#94a3b8', marginLeft: '4px' }}>°C</span>
               </Typography>
               <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block' }}>
-                Temp. Cúpula (SHT): {latestReading.temp_sup != null ? `${Number(latestReading.temp_sup).toFixed(1)}°C` : 'N/A'}
+                Temp. Cúpula (SHT): {latestReading.temp_int_sup != null ? `${Number(latestReading.temp_int_sup).toFixed(1)}°C` : 'N/A'}
               </Typography>
             </CardContent>
           </Card>
@@ -260,11 +260,11 @@ export function DashboardView() {
                 </Typography>
               </Box>
               <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: 'monospace', color: '#e2e8f0', my: 0.5 }}>
-                {latestReading.hum_inf != null ? `${Number(latestReading.hum_inf).toFixed(1)}` : '---'}
+                {latestReading.hum_int_inf != null ? `${Number(latestReading.hum_int_inf).toFixed(1)}` : '---'}
                 <span style={{ fontSize: '1rem', color: '#94a3b8', marginLeft: '4px' }}>%</span>
               </Typography>
               <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block' }}>
-                Humedad Techo: {latestReading.hum_sup != null ? `${Number(latestReading.hum_sup).toFixed(0)}%` : 'N/A'}
+                Humedad Techo: {latestReading.hum_int_sup != null ? `${Number(latestReading.hum_int_sup).toFixed(0)}%` : 'N/A'}
               </Typography>
             </CardContent>
           </Card>
@@ -456,15 +456,15 @@ export function DashboardView() {
                 <Grid item xs={6} sm={3}>
                   <Box sx={{ 
                     p: 1.5, 
-                    bgcolor: latestReading.extractor_co2 === 1 ? 'rgba(59, 130, 246, 0.05)' : '#0f1419', 
-                    border: `1px solid ${latestReading.extractor_co2 === 1 ? '#3b82f6' : '#1a2332'}`, 
+                    bgcolor: latestReading.vent_co2 === 1 ? 'rgba(59, 130, 246, 0.05)' : '#0f1419', 
+                    border: `1px solid ${latestReading.vent_co2 === 1 ? '#3b82f6' : '#1a2332'}`, 
                     borderRadius: '2px', 
                     textAlign: 'center' 
                   }}>
-                    <Wind size={16} color={latestReading.extractor_co2 === 1 ? '#3b82f6' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                    <Wind size={16} color={latestReading.vent_co2 === 1 ? '#3b82f6' : '#94a3b8'} style={{ marginBottom: 4 }} />
                     <Typography variant="caption" sx={{ display: 'block', color: '#94a3b8', fontSize: '0.65rem' }}>EXTRACTOR CO₂</Typography>
-                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: latestReading.extractor_co2 === 1 ? '#3b82f6' : '#94a3b8' }}>
-                      {latestReading.extractor_co2 === 1 ? 'ACTIVO (ON)' : 'STANDBY (OFF)'}
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: latestReading.vent_co2 === 1 ? '#3b82f6' : '#94a3b8' }}>
+                      {latestReading.vent_co2 === 1 ? 'ACTIVO (ON)' : 'STANDBY (OFF)'}
                     </Typography>
                   </Box>
                 </Grid>
@@ -499,7 +499,7 @@ export function DashboardView() {
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', pb: 0.5 }}>
                   <Typography variant="caption" sx={{ color: '#94a3b8' }}>Corriente de Línea:</Typography>
                   <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#e2e8f0' }}>
-                    {latestReading.corriente != null ? `${Number(latestReading.corriente).toFixed(2)} A` : 'N/A'}
+                    {latestReading.corriente_neta != null ? `${Number(latestReading.corriente_neta).toFixed(2)} A` : 'N/A'}
                   </Typography>
                 </Box>
               </Box>

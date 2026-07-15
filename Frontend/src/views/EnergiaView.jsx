@@ -113,7 +113,7 @@ export const EnergiaView = () => {
                 <YAxis stroke="#e2e8f0" style={{ fontSize: 10 }} />
                 <Tooltip labelFormatter={(label) => new Date(label).toLocaleString('es-CO')} contentStyle={{ backgroundColor: '#1a2332', border: '1px solid #2d3748' }} />
                 <Legend verticalAlign="top" height={36} />
-                <Line type="step" dataKey="potencia" name="Potencia Activa (W)" stroke="#3b82f6" strokeWidth={2} dot={false} />
+                <Line type="step" dataKey="potencia_w" name="Potencia Activa (W)" stroke="#3b82f6" strokeWidth={2} dot={false} />
               </LineChart>
             </ResponsiveContainer>
           </Box>
