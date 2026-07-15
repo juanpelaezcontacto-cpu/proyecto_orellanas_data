@@ -1,128 +1,189 @@
 import React, { useState } from 'react';
-import { Box, AppBar, Toolbar, Typography, Button, Container, Tab, Tabs } from '@mui/material';
-import { LayoutDashboard, Sliders, LogIn, LogOut } from 'lucide-react';
-import { AuthProvider, useAuth } from './context/AuthContext';
-import { TelemetryProvider } from './context/TelemetryContext'; // 👈 IMPORTANTE: Recuperamos tu proveedor de datos
+import { ThemeProvider, Box, CssBaseline, AppBar, Toolbar, Typography, Button, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, BottomNavigation, BottomNavigationAction, Paper, useMediaQuery } from '@mui/material';
+import { LayoutDashboard, CloudSun, Zap, Sliders, ShieldAlert, LogOut, LogIn } from 'lucide-react';
+import { theme } from './theme';
+import { AuthProvider, useAuth } from './context/AuthContext'; // Mantén tu importación original de AuthContext
+import { TelemetryProvider, useTelemetry } from './context/TelemetryContext';
+
+// Importación de las Vistas (Desarrollaremos la DashboardView primero, deja las otras declaradas de forma básica temporalmente)
 import { DashboardView } from './views/DashboardView';
-import { ControlView } from './views/ControlView';
+import { ControlView } from './views/ControlView'; // Asegura tener placeholders vacíos o tus vistas actuales
 import { LoginView } from './views/LoginView';
 
-// 1. Componente que consume el estado de autenticación y maneja las pestañas
-function AppContent() {
-  const { user, role, logout } = useAuth();
-  const [activeTab, setActiveTab] = useState(0); // 0 = Dashboard, 1 = Controles, 2 = Login
+const viewsList = [
+  { id: 0, label: 'Dashboard', icon: <LayoutDashboard size={20} />, component: <DashboardView /> },
+  { id: 1, label: 'Clima', icon: <CloudSun size={20} />, component: <Box sx={{ p: 3 }}>[Vista Clima - Siguiente Entrega]</Box> },
+  { id: 2, label: 'Energía', icon: <Zap size={20} />, component: <Box sx={{ p: 3 }}>[Vista Energía - Siguiente Entrega]</Box> },
+  { id: 3, label: 'Controles', icon: <Sliders size={20} />, component: <ControlView /> },
+  { id: 4, label: 'Diagnóstico', icon: <ShieldAlert size={20} />, component: <Box sx={{ p: 3 }}>[Vista Diagnóstico - Siguiente Entrega]</Box> },
+];
 
-  const handleTabChange = (event, newValue) => {
-    setActiveTab(newValue);
+const DRAWER_WIDTH = 240;
+
+function LayoutShell() {
+  const [activeTab, setActiveTab] = useState(0);
+  const { user, role, logout } = useAuth();
+  const { latestReading } = useTelemetry();
+  
+  const isDesktop = useMediaQuery('(min-width:1200px)');
+  const isMobile = useMediaQuery('(max-width:767px)');
+
+  // Evaluación del estado de conexión inferida por antigüedad de la última telemetría
+  const getConnectionStatus = () => {
+    if (!latestReading || !latestReading.created_at) return { label: 'Desconocido', color: 'text.secondary' };
+    const diffMin = (new Date() - new Date(latestReading.created_at)) / 1000 / 60;
+    
+    if (diffMin < 10) return { label: 'ONLINE', color: 'success.main' };
+    if (diffMin >= 10 && diffMin <= 15) return { label: 'DEGRADADO', color: 'warning.main' };
+    return { label: 'OFFLINE', color: 'error.main' };
   };
 
+  const status = getConnectionStatus();
+
   return (
-    <Box sx={{ flexGrow: 1, minHeight: '100vh', bgcolor: '#0f172a', color: '#f8fafc' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', color: 'text.primary' }}>
       
-      {/* BARRA SUPERIOR (HEADER) */}
-      <AppBar position="static" sx={{ bgcolor: '#1e293b', backgroundImage: 'none', borderBottom: '1px solid #334155' }}>
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1, fontWeight: 800, tracking: 'tight' }}>
-            Orellanas Data IoT 🍄
-          </Typography>
-
-          {/* Información del usuario conectado */}
-          {user && (
-            <Typography variant="body2" sx={{ mr: 2, color: '#94a3b8' }}>
-              Operador: <strong style={{ color: '#f8fafc' }}>{user.email}</strong> (<i>{role}</i>)
-            </Typography>
-          )}
-
-          {/* Botón dinámico de acceso rápido */}
-          {user ? (
-            <Button 
-              color="error" 
-              variant="outlined" 
-              startIcon={<LogOut size={16} />}
-              onClick={() => {
-                logout();
-                setActiveTab(0); // Volver al dashboard público al salir
-              }}
-              size="small"
-            >
-              Salir
-            </Button>
-          ) : (
-            activeTab !== 2 && (
-              <Button 
-                color="primary" 
-                variant="contained" 
-                startIcon={<LogIn size={16} />}
-                onClick={() => setActiveTab(2)}
-                size="small"
-              >
-                Acceder
-              </Button>
-            )
-          )}
-        </Toolbar>
-      </AppBar>
-
-      {/* PESTAÑAS DE NAVEGACIÓN */}
-      <Box sx={{ borderBottom: 1, borderColor: '#334155', bgcolor: '#1e293b' }}>
-        <Tabs 
-          value={activeTab} 
-          onChange={handleTabChange} 
-          textColor="inherit"
-          indicatorColor="primary"
-          centered
+      {/* SIDEBAR PARA DESKTOP / TABLETS */}
+      {!isMobile && (
+        <Drawer
+          variant="permanent"
+          sx={{
+            width: DRAWER_WIDTH,
+            flexShrink: 0,
+            [`& .MuiDrawer-paper`]: { width: DRAWER_WIDTH, boxSizing: 'border-box', bgcolor: 'background.paper', borderRight: '1px solid #2d3b50' },
+          }}
         >
-          <Tab icon={<LayoutDashboard size={18} />} label="Dashboard" iconPosition="start" />
-          <Tab icon={<Sliders size={18} />} label="Controles" iconPosition="start" />
-          {!user && <Tab icon={<LogIn size={18} />} label="Acceso" iconPosition="start" />}
-        </Tabs>
+          <Toolbar>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: 'primary.main', display: 'flex', alignItems: 'center', gap: 1 }}>
+              🍄 Orellanas IoT
+            </Typography>
+          </Toolbar>
+          <Box sx={{ overflow: 'auto', px: 2 }}>
+            <List>
+              {viewsList.map((view) => (
+                <ListItem key={view.id} disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    selected={activeTab === view.id}
+                    onClick={() => setActiveTab(view.id)}
+                    sx={{
+                      borderRadius: 1,
+                      '&.Mui-selected': { bgcolor: 'primary.main', '&:hover': { bgcolor: 'primary.main' } },
+                    }}
+                  >
+                    <ListItemIcon sx={{ color: activeTab === view.id ? '#fff' : 'text.secondary', minWidth: 40 }}>
+                      {view.icon}
+                    </ListItemIcon>
+                    <ListItemText 
+                      primary={view.label} 
+                      primaryTypographyProps={{ fontSize: '14px', fontWeight: activeTab === view.id ? 700 : 500 }} 
+                    />
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          </Box>
+        </Drawer>
+      )}
+
+      {/* CONTENIDO PRINCIPAL */}
+      <Box sx={{ flexGrow: 1, pb: isMobile ? 10 : 2, display: 'flex', flexDirection: 'column' }}>
+        
+        {/* APP BAR (Header) */}
+        <AppBar position="sticky" elevation={0} sx={{ borderBottom: '1px solid #2d3b50', bgcolor: 'background.paper' }}>
+          <Toolbar sx={{ justifyContent: 'space-between' }}>
+            {isMobile && (
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, color: 'primary.main' }}>
+                Orellanas IoT 🍄
+              </Typography>
+            )}
+            
+            {/* Status de Conexión Inferido */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: status.color }} />
+              <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 700, color: status.color }}>
+                {status.label}
+              </Typography>
+              {!isMobile && (
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  (Inferido por última telemetría)
+                </Typography>
+              )}
+            </Box>
+
+            {/* Gestión de Sesión */}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+              {user && !isMobile && (
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  User: <span style={{ color: '#e2e8f0', fontWeight: 'bold' }}>{user.email}</span> ({role})
+                </Typography>
+              )}
+              {user ? (
+                <Button 
+                  color="error" 
+                  variant="outlined" 
+                  size="small" 
+                  startIcon={<LogOut size={14} />} 
+                  onClick={logout}
+                >
+                  {!isMobile && 'Salir'}
+                </Button>
+              ) : (
+                <Button 
+                  color="primary" 
+                  variant="contained" 
+                  size="small" 
+                  startIcon={<LogIn size={14} />} 
+                  onClick={() => setActiveTab(3)} // Redirigir a Controles donde vive el login
+                >
+                  {!isMobile && 'Acceso'}
+                </Button>
+              )}
+            </Box>
+          </Toolbar>
+        </AppBar>
+
+        {/* CONTENEDOR DE LA VISTA SELECCIONADA */}
+        <Box sx={{ flexGrow: 1 }}>
+          {viewsList[activeTab].component}
+        </Box>
       </Box>
 
-      {/* VISTAS CONDICIONALES */}
-      <Container sx={{ mt: 4, pb: 4 }}>
-        
-        {/* Pestaña 0: Telemetría (Pública) */}
-        {activeTab === 0 && <DashboardView />}
-        
-        {/* Pestaña 1: Configuración de Variables (Protegida) */}
-        {activeTab === 1 && <ControlView />}
-        
-        {/* Pestaña 2: Formulario de Autenticación */}
-        {activeTab === 2 && !user && (
-          <Box>
-            <LoginView />
-            <Button 
-              fullWidth 
-              onClick={() => setActiveTab(0)} 
-              sx={{ mt: 2, color: '#94a3b8', textTransform: 'none' }}
-            >
-              Volver como Invitado (Solo Lectura)
-            </Button>
-          </Box>
-        )}
-        
-        {/* Redirección visual automática al iniciar sesión exitosamente */}
-        {activeTab === 2 && user && (
-          <Box sx={{ textAlign: 'center', py: 8 }}>
-            <Typography variant="h5" sx={{ mb: 2, fontWeight: 'bold' }}>¡Sesión Iniciada!</Typography>
-            <Typography sx={{ color: '#94a3b8', mb: 4 }}>Ahora tienes privilegios para modificar los actuadores.</Typography>
-            <Button variant="contained" size="large" onClick={() => setActiveTab(1)}>
-              Ir al Panel de Control
-            </Button>
-          </Box>
-        )}
-      </Container>
+      {/* BOTTOM NAV PARA DISPOSITIVOS MÓVILES */}
+      {isMobile && (
+        <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000, borderTop: '1px solid #2d3b50' }} elevation={3}>
+          <BottomNavigation
+            showLabels
+            value={activeTab}
+            onChange={(event, newValue) => setActiveTab(newValue)}
+            sx={{ bgcolor: 'background.paper' }}
+          >
+            {viewsList.map((view) => (
+              <BottomNavigationAction
+                key={view.id}
+                label={view.label}
+                icon={view.icon}
+                sx={{
+                  color: 'text.secondary',
+                  '&.Mui-selected': { color: 'primary.main' },
+                }}
+              />
+            ))}
+          </BottomNavigation>
+        </Paper>
+      )}
     </Box>
   );
 }
 
-// 2. El componente principal envuelve AppContent con todos los contextos requeridos
 export default function App() {
   return (
-    <AuthProvider>
-      <TelemetryProvider> {/* 👈 Envolvemos la app para que las vistas puedan leer los sensores */}
-        <AppContent />
-      </TelemetryProvider>
-    </AuthProvider>
+    <ThemeProvider theme={theme}>
+      <CssBaseline />
+      <AuthProvider>
+        <TelemetryProvider>
+          <LayoutShell />
+        </TelemetryProvider>
+      </AuthProvider>
+    </ThemeProvider>
   );
 }
