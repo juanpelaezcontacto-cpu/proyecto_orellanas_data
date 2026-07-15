@@ -1,8 +1,8 @@
 import React, { useMemo } from 'react';
-import { Box, Grid, Card, CardContent, Typography, Alert, AlertTitle, CircularProgress, Tooltip, Chip, Divider } from '@mui/material';
-import { Thermometer, Droplet, Wind, Activity, Bell, ShieldCheck, ThermometerSnowflake, Lightbulb, Lock, HelpCircle, Zap, Clock, AlertTriangle } from 'lucide-react';
+import { Box, Grid, Card, CardContent, Typography, Alert, AlertTitle, CircularProgress, Tooltip, Divider } from '@mui/material';
+import { Thermometer, Droplet, Wind, Activity, Bell, ShieldCheck, ThermometerSnowflake, Lightbulb, Lock, HelpCircle, Zap, Clock } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
-import { LineChart, Line, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer, YAxis } from 'recharts';
 
 // Codificación dictada por el hardware
 const ESPECIE_LABEL = { 0: 'Pleurotus ostreatus (Orellana)', 1: 'Hericium erinaceus (Melena de León)' };
@@ -11,7 +11,7 @@ const FASE_LABEL = { 0: 'Incubación', 1: 'Fructificación' };
 export function DashboardView() {
   const { latestReading, historicalData, loading } = useTelemetry();
 
-  // 1. MOTOR DE INFERENCIA DE CONEXIÓN
+  // 1. Motor de inferencia de conexión (Nivel 3)
   const connectionInfo = useMemo(() => {
     if (!latestReading) return { label: 'SIN DATOS', color: '#ef4444', minutes: null };
     const lastTime = new Date(latestReading.created_at).getTime();
@@ -28,13 +28,13 @@ export function DashboardView() {
     }
   }, [latestReading]);
 
-  // 2. CÁLCULO DE LÓGICA ANALÍTICA DE ALTO NIVEL
+  // 2. Cómputo de analíticas avanzadas
   const analytics = useMemo(() => {
     if (!historicalData || historicalData.length === 0) {
       return { co2Stress: 0, humSwitches: 0, compSwitches: 0, tempGrad: 0, humGrad: 0 };
     }
 
-    const recent = historicalData.slice(-20); // Ventana estándar de 20 muestras
+    const recent = historicalData.slice(-20);
 
     // A. Dosis de Estrés por CO2 (S_CO2)
     const co2Stress = recent.reduce((acc, curr) => {
@@ -43,7 +43,7 @@ export function DashboardView() {
       return acc + (excess > 0 ? excess : 0);
     }, 0);
 
-    // B. Conteo de Conmutaciones de Actuadores (Fatiga de Relés)
+    // B. Conmutaciones de Actuadores
     let humSwitches = 0;
     let compSwitches = 0;
     for (let i = 1; i < recent.length; i++) {
@@ -51,7 +51,7 @@ export function DashboardView() {
       if (recent[i].compresor !== recent[i - 1].compresor) compSwitches++;
     }
 
-    // C. Análisis de Gradiente Vertical Actual (Último Registro)
+    // C. Gradiente Vertical
     const latest = latestReading || recent[recent.length - 1];
     const tempGrad = (latest.temp_sup ?? 0) - (latest.temp_inf ?? 0);
     const humGrad = (latest.hum_sup ?? 0) - (latest.hum_inf ?? 0);
@@ -59,57 +59,50 @@ export function DashboardView() {
     return { co2Stress, humSwitches, compSwitches, tempGrad, humGrad };
   }, [historicalData, latestReading]);
 
-  // 3. MOTOR DE ALARMAS EN TIEMPO REAL (Nivel 3)
+  // 3. Sistema de alarmas en tiempo real
   const activeAlarms = useMemo(() => {
     if (!latestReading) return [];
     const alarms = [];
 
-    // Fallas de Hardware (Sensores)
-    if (latestReading.err_max > 0) alarms.push({ title: 'FALLA TERMOCUPLA MAX', desc: 'Línea de adquisición física interrumpida.', type: 'error' });
-    if (latestReading.err_sht_ext > 0) alarms.push({ title: 'FALLA SHT EXT', desc: 'Pérdida de tramas de datos del sensor exterior.', type: 'error' });
-    if (latestReading.err_sht_int > 0) alarms.push({ title: 'FALLA SHT INT', desc: 'Microclima de cámara sin lectura interna.', type: 'error' });
-    if (latestReading.err_scd > 0) alarms.push({ title: 'FALLA SCD30 (CO2)', desc: 'Error de bus I2C con sensor principal.', type: 'error' });
-    if (latestReading.err_pzem > 0) alarms.push({ title: 'FALLA MONITOREO ELÉCTRICO', desc: 'No se reciben lecturas del módulo PZEM.', type: 'error' });
+    if (latestReading.err_max > 0) alarms.push({ title: 'ERR_MAX', desc: 'Falla del sensor de temperatura máxima.', type: 'error' });
+    if (latestReading.err_sht_ext > 0) alarms.push({ title: 'ERR_SHT_EXT', desc: 'Falla del sensor SHT exterior.', type: 'error' });
+    if (latestReading.err_sht_int > 0) alarms.push({ title: 'ERR_SHT_INT', desc: 'Falla del sensor SHT interior.', type: 'error' });
+    if (latestReading.err_scd > 0) alarms.push({ title: 'ERR_SCD30', desc: 'Falla de comunicación con el sensor de CO2.', type: 'error' });
+    if (latestReading.err_pzem > 0) alarms.push({ title: 'ERR_PZEM', desc: 'Falla del módulo de monitoreo energético.', type: 'error' });
 
-    // Sobrecargas térmicas y eléctricas
     if (latestReading.temp_comp > 55) {
-      alarms.push({ title: 'SOBRECALENTAMIENTO COMPRESOR', desc: `Crítico: ${latestReading.temp_comp}°C (Límite de seguridad: 55°C).`, type: 'error' });
+      alarms.push({ title: 'TEMP_COMP_CRITICA', desc: `Compresor a ${latestReading.temp_comp}°C (Máx 55°C).`, type: 'error' });
     }
     if (latestReading.err_luz === true) {
-      alarms.push({ title: 'FALLA DE ACTUADOR (LUZ)', desc: 'Discrepancia detectada: consumo medido no corresponde al estado lógico.', type: 'error' });
+      alarms.push({ title: 'ERR_LUZ_ACTUADOR', desc: 'Falla de consumo/operación detectada en la iluminación.', type: 'error' });
     }
-
-    // Desviaciones biológicas críticas
     if (latestReading.co2_inf > latestReading.co2_setpoint_max) {
-      alarms.push({ title: 'SATURACIÓN DE CO2', desc: `CO2 actual (${latestReading.co2_inf} ppm) supera setpoint de perfil (${latestReading.co2_setpoint_max} ppm).`, type: 'warning' });
+      alarms.push({ title: 'EXCESO_CO2', desc: `CO2 actual (${latestReading.co2_inf} ppm) supera el setpoint del perfil (${latestReading.co2_setpoint_max} ppm).`, type: 'warning' });
     }
     if (latestReading.hum_inf < latestReading.hum_setpoint_min || latestReading.hum_inf > latestReading.hum_setpoint_max) {
-      alarms.push({ title: 'HUMEDAD FUERA DE RANGO', desc: `Humedad de cámara en ${latestReading.hum_inf}% (Rango óptimo: ${latestReading.hum_setpoint_min}% - ${latestReading.hum_setpoint_max}%).`, type: 'warning' });
+      alarms.push({ title: 'HUMEDAD_FUERA_DE_RANGO', desc: `Humedad actual (${latestReading.hum_inf}%) fuera de límites del perfil.`, type: 'warning' });
     }
-
-    // Seguridad de puerta y tiempo
     if (latestReading.puerta === 1) {
-      alarms.push({ title: 'CÁMARA ABIERTA', desc: 'Sensor de puerta física activo.', type: 'warning' });
+      alarms.push({ title: 'PUERTA_ABIERTA', desc: 'La puerta de la cámara se encuentra abierta.', type: 'warning' });
     }
     if (latestReading.hora_sincronizada === false) {
-      alarms.push({ title: 'DESFASE HORARIO (NTP)', desc: 'Sin sincronización horaria. Fotoperiodo suspendido por seguridad.', type: 'error' });
+      alarms.push({ title: 'NTP_DESINCRONIZADO', desc: 'El reloj del hardware no está sincronizado con internet.', type: 'error' });
     }
 
-    // Fatiga física evaluada por análisis local
     if (analytics.humSwitches > 25) {
-      alarms.push({ title: 'FATIGA RELÉ HUMIDIFICADOR', desc: `Ciclos excesivos (${analytics.humSwitches}) detectados. Riesgo físico inminente.`, type: 'error' });
+      alarms.push({ title: 'FATIGA_HUMIDIFICADOR', desc: `Ciclos excesivos (${analytics.humSwitches}) en la ventana actual.`, type: 'error' });
     }
     if (analytics.compSwitches > 10) {
-      alarms.push({ title: 'CICLADO RÁPIDO DE COMPRESOR', desc: `Conmutaciones elevadas (${analytics.compSwitches}) detectadas en el compresor.`, type: 'error' });
+      alarms.push({ title: 'FATIGA_COMPRESOR', desc: `Ciclos de conmutación elevados (${analytics.compSwitches}) en el compresor.`, type: 'error' });
     }
 
     return alarms;
   }, [latestReading, analytics]);
 
-  // 4. SPARKLINE GENERATOR (Últimas 20 muestras)
+  // 4. Datos estructurados para mini-gráficos SCADA
   const sparklineData = useMemo(() => {
     if (!historicalData || historicalData.length === 0) return { temp: [], hum: [], co2: [] };
-    const recent = historicalData.slice(-20);
+    const recent = historicalData.slice(-25); // Ventana de 25 muestras para mejor resolución visual
     return {
       temp: recent.map(d => ({ value: d.temp_inf })),
       hum: recent.map(d => ({ value: d.hum_inf })),
@@ -120,339 +113,272 @@ export function DashboardView() {
   if (loading) {
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', py: 12, gap: 2, bgcolor: '#0f1419', minHeight: '80vh' }}>
-        <CircularProgress size={40} sx={{ color: '#3b82f6' }} />
-        <Typography variant="body2" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-          ADQUIRIENDO DATOS DESDE SUPABASE...
+        <CircularProgress size={30} sx={{ color: '#3b82f6' }} />
+        <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace', letterSpacing: '2px' }}>
+          ADQUIRIENDO TELEMETRÍA SUPABASE...
         </Typography>
       </Box>
     );
   }
 
-  if (!latestReading) {
-    return (
-      <Box sx={{ p: 4, bgcolor: '#0f1419', minHeight: '80vh' }}>
-        <Alert severity="error" variant="filled" sx={{ bgcolor: '#ef4444', color: '#e2e8f0' }}>
-          <AlertTitle sx={{ fontWeight: 'bold' }}>SIN COMUNICACIÓN CON BASE DE DATOS</AlertTitle>
-          La base de datos de telemetría no retornó registros en la ventana horaria activa. Verifique la conexión del ESP32 a la red.
-        </Alert>
-      </Box>
-    );
-  }
+  if (!latestReading) return null;
 
   return (
-    <Box sx={{ p: { xs: 2, md: 4 }, bgcolor: '#0f1419', minHeight: '100vh', color: '#e2e8f0' }}>
+    <Box sx={{ p: { xs: 2, md: 3 }, bgcolor: '#0f1419', minHeight: '100vh', color: '#e2e8f0', fontFamily: 'monospace' }}>
       
-      {/* 1. SECCIÓN DE CABECERA SCADA */}
-      <Box sx={{ mb: 4, display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 2, borderBottom: '1px solid #1a2332', pb: 2 }}>
+      {/* HEADER INDUSTRIAL */}
+      <Box sx={{ mb: 3, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 2, borderBottom: '1px solid #1a2332', pb: 2 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontFamily: 'monospace', fontWeight: 900, letterSpacing: '1px', color: '#e2e8f0' }}>
-            ESP32 CO-PROCESOR SCADA // CÁMARA-01
+          <Typography variant="h6" sx={{ fontFamily: 'monospace', fontWeight: 800, color: '#e2e8f0', letterSpacing: '1px' }}>
+            HONGOS-HMI // CONSOLA DE MONITOREO GENERAL
           </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.8 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mt: 0.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               <Clock size={12} color="#94a3b8" />
-              <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                HEARTBEAT: {new Date(latestReading.created_at).toLocaleString()}
+              <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.75rem' }}>
+                Última telemetría: {new Date(latestReading.created_at).toLocaleTimeString()}
               </Typography>
             </Box>
             <Divider orientation="vertical" flexItem sx={{ borderColor: '#1a2332' }} />
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: connectionInfo.color }} />
-              <Typography variant="caption" sx={{ color: '#e2e8f0', fontWeight: 'bold', fontFamily: 'monospace' }}>
-                {connectionInfo.label} ({connectionInfo.minutes != null ? `${connectionInfo.minutes} min` : 'N/A'})
+              <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: connectionInfo.color }} />
+              <Typography variant="caption" sx={{ color: '#e2e8f0', fontWeight: 'bold', fontSize: '0.75rem' }}>
+                {connectionInfo.label} ({connectionInfo.minutes}m)
               </Typography>
+              <Tooltip title="Inferencia basada en la estampa de tiempo del último registro. No representa señal WiFi física del chip.">
+                <HelpCircle size={11} color="#94a3b8" style={{ cursor: 'pointer' }} />
+              </Tooltip>
             </Box>
-            <Tooltip title="El estado se infiere por la estampa de tiempo del último registro inyectado en Supabase. No mide señal física de WiFi.">
-              <HelpCircle size={12} color="#94a3b8" style={{ cursor: 'pointer' }} />
-            </Tooltip>
           </Box>
         </Box>
 
-        {/* Lote de cultivo activo */}
-        <Box sx={{ bgcolor: '#1a2332', p: 1.5, borderRadius: '4px', border: '1px solid #2d3b50', textAlign: 'right' }}>
-          <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', fontWeight: 'bold', fontFamily: 'monospace' }}>
+        <Box sx={{ bgcolor: '#1a2332', px: 2, py: 1, borderRadius: '2px', border: '1px solid #2d3b50', textAlign: 'right' }}>
+          <Typography variant="caption" sx={{ color: '#94a3b8', display: 'block', fontSize: '0.65rem', fontWeight: 'bold' }}>
             PERFIL ACTIVO EN DISPOSITIVO
           </Typography>
-          <Typography variant="subtitle2" sx={{ color: '#3b82f6', fontWeight: 800, fontFamily: 'monospace' }}>
-            {ESPECIE_LABEL[latestReading.especie_actual] || 'DESCONOCIDO'}
+          <Typography variant="body2" sx={{ color: '#3b82f6', fontWeight: 'bold', fontSize: '0.8rem' }}>
+            {ESPECIE_LABEL[latestReading.especie_actual] || 'No definido'}
           </Typography>
-          <Typography variant="caption" sx={{ color: '#e2e8f0', fontWeight: 'bold', fontFamily: 'monospace' }}>
-            Fase: {FASE_LABEL[latestReading.fase_actual] || 'N/A'}
+          <Typography variant="caption" sx={{ color: '#e2e8f0', fontSize: '0.7rem' }}>
+            Fase: {FASE_LABEL[latestReading.fase_actual] || 'No definida'}
           </Typography>
         </Box>
       </Box>
 
-      {/* 2. PANEL DE ALARMAS Y ERRORES */}
-      <Box sx={{ mb: 4 }}>
-        {activeAlarms.length > 0 ? (
-          <Card sx={{ bgcolor: '#1a2332', borderColor: '#ef4444', borderWidth: '1px', borderStyle: 'solid', borderRadius: '4px' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-                <Bell color="#ef4444" size={18} />
-                <Typography variant="subtitle2" sx={{ color: '#ef4444', fontWeight: 'bold', fontFamily: 'monospace' }}>
-                  MATRIZ DE EVENTOS ACTIVOS EN HARDWARE ({activeAlarms.length})
+      {/* ALARMAS CRÍTICAS - Diseño Limpio tipo Consola */}
+      {activeAlarms.length > 0 && (
+        <Box sx={{ mb: 3 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1, px: 1 }}>
+            <Bell color="#ef4444" size={14} />
+            <Typography variant="caption" sx={{ color: '#ef4444', fontWeight: 'bold', letterSpacing: '0.5px' }}>
+              MATRIZ DE EVENTOS ACTIVOS ({activeAlarms.length})
+            </Typography>
+          </Box>
+          <Grid container spacing={1}>
+            {activeAlarms.map((alarm, idx) => (
+              <Grid item xs={12} sm={6} key={idx}>
+                <Box sx={{ 
+                  px: 2, py: 1, 
+                  bgcolor: '#141b25', 
+                  borderRadius: '2px', 
+                  borderLeft: `3px solid ${alarm.type === 'error' ? '#ef4444' : '#f59e0b'}`,
+                  border: '1px solid #1a2332',
+                  borderLeftWidth: '3px',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <Box>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: alarm.type === 'error' ? '#ef4444' : '#f59e0b', fontSize: '0.75rem', display: 'block' }}>
+                      [{alarm.title}]
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.7rem' }}>
+                      {alarm.desc}
+                    </Typography>
+                  </Box>
+                </Box>
+              </Grid>
+            ))}
+          </Grid>
+        </Box>
+      )}
+
+      {/* MÉTRICAS FÍSICAS PRINCIPALES CON SPARKLINE INTEGRADO */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        
+        {/* Tarjeta Temperatura */}
+        <Grid item xs={12} md={4}>
+          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '2px', position: 'relative', overflow: 'hidden' }}>
+            {/* Sparkline de Fondo sutil */}
+            <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '40px', opacity: 0.4 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={sparklineData.temp} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                  <YAxis domain={['dataMin - 1', 'dataMax + 1']} hide />
+                  <Area type="monotone" dataKey="value" stroke="#3b82f6" fill="#3b82f6" strokeWidth={1} fillOpacity={0.1} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Box>
+            <CardContent sx={{ p: 2, position: 'relative', zIndex: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="caption" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 'bold', fontSize: '0.7rem' }}>
+                  <Thermometer size={12} /> TEMP. CÁMARA
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#3b82f6', fontSize: '0.65rem', border: '1px solid rgba(59, 130, 246, 0.3)', px: 0.5 }}>
+                  SET: {latestReading.setpoint_temp != null ? `${latestReading.setpoint_temp}°C` : 'N/A'}
                 </Typography>
               </Box>
-              <Grid container spacing={1.5}>
-                {activeAlarms.map((alarm, idx) => (
-                  <Grid item xs={12} md={6} key={idx}>
-                    <Box sx={{ 
-                      p: 1.5, 
-                      bgcolor: '#0f1419', 
-                      borderRadius: '2px', 
-                      borderLeft: `3px solid ${alarm.type === 'error' ? '#ef4444' : '#f59e0b'}`,
-                      borderTop: '1px solid #1a2332',
-                      borderRight: '1px solid #1a2332',
-                      borderBottom: '1px solid #1a2332',
-                      display: 'flex',
-                      flexDirection: 'column'
-                    }}>
-                      <Typography variant="caption" sx={{ fontWeight: 'bold', color: alarm.type === 'error' ? '#ef4444' : '#f59e0b', fontFamily: 'monospace' }}>
-                        {alarm.title}
-                      </Typography>
-                      <Typography variant="body2" sx={{ color: '#e2e8f0', fontSize: '0.8rem', mt: 0.5 }}>
-                        {alarm.desc}
-                      </Typography>
-                    </Box>
-                  </Grid>
-                ))}
-              </Grid>
+              <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: 'monospace', color: '#e2e8f0', my: 0.5 }}>
+                {latestReading.temp_inf != null ? `${Number(latestReading.temp_inf).toFixed(1)}` : '---'}
+                <span style={{ fontSize: '1rem', color: '#94a3b8', marginLeft: '4px' }}>°C</span>
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block' }}>
+                Temp. Cúpula (SHT): {latestReading.temp_sup != null ? `${Number(latestReading.temp_sup).toFixed(1)}°C` : 'N/A'}
+              </Typography>
             </CardContent>
           </Card>
-        ) : (
-          <Box sx={{ 
-            p: 2, 
-            bgcolor: '#1a2332', 
-            borderRadius: '4px', 
-            border: '1px solid #22c55e', 
-            display: 'flex', 
-            alignItems: 'center', 
-            gap: 1.5 
-          }}>
-            <ShieldCheck size={20} color="#22c55e" />
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#22c55e', display: 'block', fontFamily: 'monospace' }}>
-                SISTEMA INTEGRAL NOMINAL
+        </Grid>
+
+        {/* Tarjeta Humedad */}
+        <Grid item xs={12} md={4}>
+          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '2px', position: 'relative', overflow: 'hidden' }}>
+            {/* Sparkline de Fondo sutil */}
+            <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '40px', opacity: 0.4 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={sparklineData.hum} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                  <YAxis domain={[0, 100]} hide />
+                  <Area type="monotone" dataKey="value" stroke="#22c55e" fill="#22c55e" strokeWidth={1} fillOpacity={0.1} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Box>
+            <CardContent sx={{ p: 2, position: 'relative', zIndex: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="caption" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 'bold', fontSize: '0.7rem' }}>
+                  <Droplet size={12} /> HUMEDAD RELATIVA
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#22c55e', fontSize: '0.65rem', border: '1px solid rgba(34, 197, 94, 0.3)', px: 0.5 }}>
+                  RANGO: {latestReading.hum_setpoint_min}%-{latestReading.hum_setpoint_max}%
+                </Typography>
+              </Box>
+              <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: 'monospace', color: '#e2e8f0', my: 0.5 }}>
+                {latestReading.hum_inf != null ? `${Number(latestReading.hum_inf).toFixed(1)}` : '---'}
+                <span style={{ fontSize: '1rem', color: '#94a3b8', marginLeft: '4px' }}>%</span>
               </Typography>
-              <Typography variant="caption" sx={{ color: '#94a3b8' }}>
-                Todos los sensores de adquisición reportan lecturas estables. Actuadores sincronizados con el firmware sin desvíos térmicos ni biológicos.
+              <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block' }}>
+                Humedad Techo: {latestReading.hum_sup != null ? `${Number(latestReading.hum_sup).toFixed(0)}%` : 'N/A'}
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+        {/* Tarjeta CO2 */}
+        <Grid item xs={12} md={4}>
+          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '2px', position: 'relative', overflow: 'hidden' }}>
+            {/* Sparkline de Fondo sutil */}
+            <Box sx={{ position: 'absolute', bottom: 0, left: 0, right: 0, height: '40px', opacity: 0.4 }}>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={sparklineData.co2} margin={{ top: 0, right: 0, left: 0, bottom: 0 }}>
+                  <YAxis domain={['dataMin - 100', 'dataMax + 100']} hide />
+                  <Area type="monotone" dataKey="value" stroke="#f59e0b" fill="#f59e0b" strokeWidth={1} fillOpacity={0.1} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </Box>
+            <CardContent sx={{ p: 2, position: 'relative', zIndex: 2 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                <Typography variant="caption" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 'bold', fontSize: '0.7rem' }}>
+                  <Wind size={12} /> CONCENTRACIÓN CO₂
+                </Typography>
+                <Typography variant="caption" sx={{ color: '#f59e0b', fontSize: '0.65rem', border: '1px solid rgba(245, 158, 11, 0.3)', px: 0.5 }}>
+                  MÁX: {latestReading.co2_setpoint_max} ppm
+                </Typography>
+              </Box>
+              <Typography variant="h4" sx={{ fontWeight: 'bold', fontFamily: 'monospace', color: '#e2e8f0', my: 0.5 }}>
+                {latestReading.co2_inf != null ? `${Number(latestReading.co2_inf).toFixed(0)}` : '---'}
+                <span style={{ fontSize: '1rem', color: '#94a3b8', marginLeft: '4px' }}>ppm</span>
+              </Typography>
+              <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block' }}>
+                Sensor: SCD30 (Adquisición I2C)
+              </Typography>
+            </CardContent>
+          </Card>
+        </Grid>
+
+      </Grid>
+
+      {/* BLOQUE ANALÍTICO SCADA: Gradientes, Estrés y Fatiga */}
+      <Grid container spacing={2} sx={{ mb: 3 }}>
+        <Grid item xs={12}>
+          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '2px' }}>
+            <Box sx={{ bgcolor: '#151c27', px: 2, py: 1, borderBottom: '1px solid #2d3b50' }}>
+              <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#3b82f6', letterSpacing: '0.5px' }}>
+                &gt;_ ANÁLISIS METROLÓGICO AVANZADO (BUFFER: 20 MUESTRAS)
               </Typography>
             </Box>
-          </Box>
-        )}
-      </Box>
-
-      {/* 3. GRID PRINCIPAL DE VARIABLES CLIMÁTICAS (LECTURA REAL) */}
-      <Grid container spacing={2.5} sx={{ mb: 4 }}>
-        
-        {/* Temperatura */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '4px' }}>
             <CardContent sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    <Thermometer size={14} /> TEMP. CÁMARA
-                  </Typography>
-                  <Typography variant="h4" sx={{ my: 1, fontFamily: 'monospace', fontWeight: 'bold', color: '#e2e8f0' }}>
-                    {latestReading.temp_inf != null ? `${Number(latestReading.temp_inf).toFixed(1)}°C` : '---'}
-                  </Typography>
-                </Box>
-                <Box sx={{ width: 80, height: 40 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={sparklineData.temp}>
-                      <Line type="monotone" dataKey="value" stroke="#3b82f6" strokeWidth={1.5} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Box>
-              </Box>
-              <Divider sx={{ my: 1, borderColor: '#2d3b50' }} />
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Exterior (SHT): {latestReading.temp_sup != null ? `${Number(latestReading.temp_sup).toFixed(1)}°C` : 'N/A'}
-                </Typography>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Set: {latestReading.setpoint_temp != null ? `${latestReading.setpoint_temp}°C` : 'N/A'}
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Humedad */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '4px' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    <Droplet size={14} /> HUMEDAD RELATIVA
-                  </Typography>
-                  <Typography variant="h4" sx={{ my: 1, fontFamily: 'monospace', fontWeight: 'bold', color: '#e2e8f0' }}>
-                    {latestReading.hum_inf != null ? `${Number(latestReading.hum_inf).toFixed(1)}%` : '---'}
-                  </Typography>
-                </Box>
-                <Box sx={{ width: 80, height: 40 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={sparklineData.hum}>
-                      <Line type="monotone" dataKey="value" stroke="#22c55e" strokeWidth={1.5} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Box>
-              </Box>
-              <Divider sx={{ my: 1, borderColor: '#2d3b50' }} />
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Ext: {latestReading.hum_sup != null ? `${Number(latestReading.hum_sup).toFixed(0)}%` : 'N/A'}
-                </Typography>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Set: {latestReading.hum_setpoint_min}% - {latestReading.hum_setpoint_max}%
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* CO2 */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '4px' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    <Wind size={14} /> CONCENTRACIÓN CO₂
-                  </Typography>
-                  <Typography variant="h4" sx={{ my: 1, fontFamily: 'monospace', fontWeight: 'bold', color: '#e2e8f0' }}>
-                    {latestReading.co2_inf != null ? `${Number(latestReading.co2_inf).toFixed(0)}` : '---'} <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>ppm</span>
-                  </Typography>
-                </Box>
-                <Box sx={{ width: 80, height: 40 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={sparklineData.co2}>
-                      <Line type="monotone" dataKey="value" stroke="#f59e0b" strokeWidth={1.5} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </Box>
-              </Box>
-              <Divider sx={{ my: 1, borderColor: '#2d3b50' }} />
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Sensor: SCD30 I2C
-                </Typography>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Límite Máx: {latestReading.co2_setpoint_max} ppm
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-        {/* Telemetría Energética */}
-        <Grid item xs={12} sm={6} md={3}>
-          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '4px' }}>
-            <CardContent sx={{ p: 2 }}>
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                <Box>
-                  <Typography variant="caption" sx={{ color: '#94a3b8', display: 'flex', alignItems: 'center', gap: 0.5, fontWeight: 'bold', fontFamily: 'monospace' }}>
-                    <Activity size={14} /> POTENCIA ACTIVA
-                  </Typography>
-                  <Typography variant="h4" sx={{ my: 1, fontFamily: 'monospace', fontWeight: 'bold', color: '#e2e8f0' }}>
-                    {latestReading.potencia != null ? `${Number(latestReading.potencia).toFixed(1)}` : '---'} <span style={{ fontSize: '0.9rem', color: '#94a3b8' }}>W</span>
-                  </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', height: 40, alignItems: 'center' }}>
-                  <Zap size={24} color="#3b82f6" />
-                </Box>
-              </Box>
-              <Divider sx={{ my: 1, borderColor: '#2d3b50' }} />
-              <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Tensión: {latestReading.voltaje != null ? `${Number(latestReading.voltaje).toFixed(1)}V` : 'N/A'}
-                </Typography>
-                <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-                  Módulo: PZEM-004T
-                </Typography>
-              </Box>
-            </CardContent>
-          </Card>
-        </Grid>
-
-      </Grid>
-
-      {/* 4. INTELIGENCIA DE DATOS Y LÓGICA ANALÍTICA (Métricas Avanzadas) */}
-      <Grid container spacing={2.5} sx={{ mb: 4 }}>
-        <Grid item xs={12}>
-          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '4px' }}>
-            <CardContent sx={{ p: 2.5 }}>
-              <Typography variant="subtitle2" sx={{ mb: 2, fontFamily: 'monospace', fontWeight: 'bold', color: '#3b82f6', letterSpacing: '0.5px' }}>
-                CÓMPUTO DE VARIABLES ANALÍTICAS COMPLEJAS (VENTANA ACTIVA: últimas 20 muestras)
-              </Typography>
-              
-              <Grid container spacing={3}>
+              <Grid container spacing={2}>
                 
-                {/* A. Dosis de Estrés por CO2 */}
+                {/* Dosis de estrés por CO2 */}
                 <Grid item xs={12} md={4}>
-                  <Box sx={{ p: 2, bgcolor: '#0f1419', borderRadius: '4px', border: '1px solid #2d3b50', height: '100%' }}>
-                    <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 'bold', display: 'block', fontFamily: 'monospace' }}>
-                      DOSIS ACUMULADA DE ESTRÉS POR CO₂
+                  <Box sx={{ p: 2, bgcolor: '#0f1419', border: '1px solid #1a2332', borderRadius: '2px', height: '100%' }}>
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 'bold', display: 'block', fontSize: '0.7rem', mb: 1 }}>
+                      DOSIS DE ESTRÉS POR CO₂ (S_CO2)
                     </Typography>
-                    <Typography variant="h5" sx={{ my: 1, fontFamily: 'monospace', fontWeight: 800, color: analytics.co2Stress > 500 ? '#f59e0b' : '#22c55e' }}>
-                      {analytics.co2Stress.toFixed(0)} <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>ppm·muestras</span>
+                    <Typography variant="h5" sx={{ fontWeight: 'bold', color: analytics.co2Stress > 500 ? '#f59e0b' : '#22c55e', mb: 1 }}>
+                      {analytics.co2Stress.toFixed(0)} <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>ppm·muestras</span>
                     </Typography>
-                    <Typography variant="caption" sx={{ color: '#94a3b8', mt: 1, display: 'block' }}>
-                      Sumatoria discreta de concentración excedente sobre el setpoint del firmware en la ventana de tiempo.
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block', lineHeight: 1.3 }}>
+                      Integral discreta del exceso de CO₂ respecto al límite real del hardware. Mide fatiga metabólica acumulada.
                     </Typography>
                   </Box>
                 </Grid>
 
-                {/* B. Análisis de Gradiente Vertical */}
+                {/* Gradiente Microclimático */}
                 <Grid item xs={12} md={4}>
-                  <Box sx={{ p: 2, bgcolor: '#0f1419', borderRadius: '4px', border: '1px solid #2d3b50', height: '100%' }}>
-                    <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 'bold', display: 'block', fontFamily: 'monospace' }}>
-                      ANÁLISIS DE ESTRATIFICACIÓN (GRADIENTES)
+                  <Box sx={{ p: 2, bgcolor: '#0f1419', border: '1px solid #1a2332', borderRadius: '2px', height: '100%' }}>
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 'bold', display: 'block', fontSize: '0.7rem', mb: 1 }}>
+                      ESTRATIFICACIÓN DE AIRE (GRADIENTES)
                     </Typography>
-                    <Box sx={{ my: 1 }}>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Gradiente Térmico (ΔT):</span>
-                        <strong style={{ color: Math.abs(analytics.tempGrad) > 3.0 ? '#f59e0b' : '#e2e8f0' }}>
-                          {analytics.tempGrad.toFixed(2)}°C
-                        </strong>
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#e2e8f0', display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                        <span>Gradiente Humedad (ΔH):</span>
-                        <strong style={{ color: Math.abs(analytics.humGrad) > 10.0 ? '#f59e0b' : '#e2e8f0' }}>
-                          {analytics.humGrad.toFixed(1)}%
-                        </strong>
-                      </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, my: 1.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #1a2332', pb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#94a3b8' }}>Gradiente de Temperatura (ΔT):</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: Math.abs(analytics.tempGrad) > 3.0 ? '#f59e0b' : '#e2e8f0' }}>
+                          {analytics.tempGrad > 0 ? `+${analytics.tempGrad.toFixed(2)}` : analytics.tempGrad.toFixed(2)}°C
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', pb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#94a3b8' }}>Gradiente de Humedad (ΔH):</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: Math.abs(analytics.humGrad) > 10.0 ? '#f59e0b' : '#e2e8f0' }}>
+                          {analytics.humGrad > 0 ? `+${analytics.humGrad.toFixed(1)}` : analytics.humGrad.toFixed(1)}%
+                        </Typography>
+                      </Box>
                     </Box>
-                    <Typography variant="caption" sx={{ color: '#94a3b8', mt: 1, display: 'block' }}>
-                      Diferencia entre el domo superior (exterior) y la cama de cultivo inferior. Mide eficacia de recirculación.
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block', lineHeight: 1.3 }}>
+                      Diferencial entre sensor superior e inferior. Evalúa si la recirculación de ventiladores está homogeneizando la cámara.
                     </Typography>
                   </Box>
                 </Grid>
 
-                {/* C. Fatiga de Relés de Actuadores */}
+                {/* Ciclos de Actuadores */}
                 <Grid item xs={12} md={4}>
-                  <Box sx={{ p: 2, bgcolor: '#0f1419', borderRadius: '4px', border: '1px solid #2d3b50', height: '100%' }}>
-                    <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 'bold', display: 'block', fontFamily: 'monospace' }}>
-                      DESGASTE DE RELÉS (TRANSICIONES ON-OFF)
+                  <Box sx={{ p: 2, bgcolor: '#0f1419', border: '1px solid #1a2332', borderRadius: '2px', height: '100%' }}>
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontWeight: 'bold', display: 'block', fontSize: '0.7rem', mb: 1 }}>
+                      FATIGA DE RELÉS (CONMUTACIONES)
                     </Typography>
-                    <Box sx={{ my: 1 }}>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#e2e8f0', display: 'flex', justifyContent: 'space-between' }}>
-                        <span>Humidificador:</span>
-                        <strong style={{ color: analytics.humSwitches > 25 ? '#ef4444' : '#22c55e' }}>
-                          {analytics.humSwitches} / 25 conmutaciones
-                        </strong>
-                      </Typography>
-                      <Typography variant="body2" sx={{ fontFamily: 'monospace', color: '#e2e8f0', display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
-                        <span>Compresor:</span>
-                        <strong style={{ color: analytics.compSwitches > 10 ? '#ef4444' : '#22c55e' }}>
-                          {analytics.compSwitches} / 10 conmutaciones
-                        </strong>
-                      </Typography>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, my: 1.5 }}>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #1a2332', pb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#94a3b8' }}>Humidificador:</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: analytics.humSwitches > 25 ? '#ef4444' : '#22c55e' }}>
+                          {analytics.humSwitches} / 25 ciclos
+                        </Typography>
+                      </Box>
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', pb: 0.5 }}>
+                        <Typography variant="caption" sx={{ color: '#94a3b8' }}>Compresor:</Typography>
+                        <Typography variant="caption" sx={{ fontWeight: 'bold', color: analytics.compSwitches > 10 ? '#ef4444' : '#22c55e' }}>
+                          {analytics.compSwitches} / 10 ciclos
+                        </Typography>
+                      </Box>
                     </Box>
-                    <Typography variant="caption" sx={{ color: '#94a3b8', mt: 1, display: 'block' }}>
-                      Las conmutaciones excesivas indican fallos térmicos u oscilaciones dañinas en la histéresis del firmware.
+                    <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem', display: 'block', lineHeight: 1.3 }}>
+                      Monitorea sobreesfuerzo de relés en la ventana temporal activa para evitar fallas catastróficas del hardware.
                     </Typography>
                   </Box>
                 </Grid>
@@ -463,56 +389,82 @@ export function DashboardView() {
         </Grid>
       </Grid>
 
-      {/* 5. ESTADO DE LOS ACTUADORES FÍSICOS (Nivel 3) */}
-      <Grid container spacing={2.5}>
-        <Grid item xs={12}>
-          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '4px' }}>
-            <CardContent sx={{ p: 2.5 }}>
-              <Typography variant="subtitle2" sx={{ mb: 2, fontFamily: 'monospace', fontWeight: 'bold', color: '#3b82f6' }}>
-                RETROALIMENTACIÓN DE ESTADO FÍSICO (SALIDA DE PINES ESP32)
+      {/* ESTADO FÍSICO DE LOS PINES DE SALIDA (Nivel 3) */}
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={8}>
+          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '2px' }}>
+            <Box sx={{ bgcolor: '#151c27', px: 2, py: 1, borderBottom: '1px solid #2d3b50' }}>
+              <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#3b82f6', letterSpacing: '0.5px' }}>
+                &gt;_ ESTADOS LÓGICOS DE ACTUACIÓN (GPIO)
               </Typography>
-              <Grid container spacing={2}>
+            </Box>
+            <CardContent sx={{ p: 2 }}>
+              <Grid container spacing={1}>
                 
                 {/* Compresor */}
-                <Grid item xs={6} md={3}>
-                  <Box sx={{ p: 2, bgcolor: '#0f1419', borderRadius: '4px', border: '1px solid #2d3b50', textAlign: 'center' }}>
-                    <ThermometerSnowflake size={24} color={latestReading.compresor === 1 ? '#ef4444' : '#94a3b8'} style={{ marginBottom: 8 }} />
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', display: 'block', fontFamily: 'monospace', fontSize: '0.8rem' }}>COMPRESOR</Typography>
-                    <Typography variant="caption" sx={{ color: latestReading.compresor === 1 ? '#ef4444' : '#94a3b8', fontWeight: 800, fontFamily: 'monospace' }}>
-                      {latestReading.compresor === 1 ? 'ON (ACTIVO)' : 'OFF (DESACTIVADO)'}
+                <Grid item xs={6} sm={3}>
+                  <Box sx={{ 
+                    p: 1.5, 
+                    bgcolor: latestReading.compresor === 1 ? 'rgba(239, 68, 68, 0.05)' : '#0f1419', 
+                    border: `1px solid ${latestReading.compresor === 1 ? '#ef4444' : '#1a2332'}`, 
+                    borderRadius: '2px', 
+                    textAlign: 'center' 
+                  }}>
+                    <ThermometerSnowflake size={16} color={latestReading.compresor === 1 ? '#ef4444' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                    <Typography variant="caption" sx={{ display: 'block', color: '#94a3b8', fontSize: '0.65rem' }}>COMPRESOR</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: latestReading.compresor === 1 ? '#ef4444' : '#94a3b8' }}>
+                      {latestReading.compresor === 1 ? 'ACTIVO (ON)' : 'STANDBY (OFF)'}
                     </Typography>
                   </Box>
                 </Grid>
 
                 {/* Humidificador */}
-                <Grid item xs={6} md={3}>
-                  <Box sx={{ p: 2, bgcolor: '#0f1419', borderRadius: '4px', border: '1px solid #2d3b50', textAlign: 'center' }}>
-                    <Droplet size={24} color={latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8'} style={{ marginBottom: 8 }} />
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', display: 'block', fontFamily: 'monospace', fontSize: '0.8rem' }}>HUMIDIFICADOR</Typography>
-                    <Typography variant="caption" sx={{ color: latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8', fontWeight: 800, fontFamily: 'monospace' }}>
-                      {latestReading.humidificador === 1 ? 'ON (ACTIVO)' : 'OFF (DESACTIVADO)'}
+                <Grid item xs={6} sm={3}>
+                  <Box sx={{ 
+                    p: 1.5, 
+                    bgcolor: latestReading.humidificador === 1 ? 'rgba(34, 197, 94, 0.05)' : '#0f1419', 
+                    border: `1px solid ${latestReading.humidificador === 1 ? '#22c55e' : '#1a2332'}`, 
+                    borderRadius: '2px', 
+                    textAlign: 'center' 
+                  }}>
+                    <Droplet size={16} color={latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                    <Typography variant="caption" sx={{ display: 'block', color: '#94a3b8', fontSize: '0.65rem' }}>HUMIDIFICADOR</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8' }}>
+                      {latestReading.humidificador === 1 ? 'ACTIVO (ON)' : 'STANDBY (OFF)'}
                     </Typography>
                   </Box>
                 </Grid>
 
-                {/* Fotoperiodo */}
-                <Grid item xs={6} md={3}>
-                  <Box sx={{ p: 2, bgcolor: '#0f1419', borderRadius: '4px', border: '1px solid #2d3b50', textAlign: 'center' }}>
-                    <Lightbulb size={24} color={latestReading.luz === 1 ? '#f59e0b' : '#94a3b8'} style={{ marginBottom: 8 }} />
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', display: 'block', fontFamily: 'monospace', fontSize: '0.8rem' }}>ILUMINACIÓN</Typography>
-                    <Typography variant="caption" sx={{ color: latestReading.luz === 1 ? '#f59e0b' : '#94a3b8', fontWeight: 800, fontFamily: 'monospace' }}>
-                      {latestReading.luz === 1 ? 'ON (ACTIV)' : 'OFF (DESACTIVADA)'}
+                {/* Iluminación */}
+                <Grid item xs={6} sm={3}>
+                  <Box sx={{ 
+                    p: 1.5, 
+                    bgcolor: latestReading.luz === 1 ? 'rgba(245, 158, 11, 0.05)' : '#0f1419', 
+                    border: `1px solid ${latestReading.luz === 1 ? '#f59e0b' : '#1a2332'}`, 
+                    borderRadius: '2px', 
+                    textAlign: 'center' 
+                  }}>
+                    <Lightbulb size={16} color={latestReading.luz === 1 ? '#f59e0b' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                    <Typography variant="caption" sx={{ display: 'block', color: '#94a3b8', fontSize: '0.65rem' }}>ILUMINACIÓN</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: latestReading.luz === 1 ? '#f59e0b' : '#94a3b8' }}>
+                      {latestReading.luz === 1 ? 'ACTIVO (ON)' : 'STANDBY (OFF)'}
                     </Typography>
                   </Box>
                 </Grid>
 
-                {/* Vent CO2 */}
-                <Grid item xs={6} md={3}>
-                  <Box sx={{ p: 2, bgcolor: '#0f1419', borderRadius: '4px', border: '1px solid #2d3b50', textAlign: 'center' }}>
-                    <Wind size={24} color={latestReading.extractor_co2 === 1 ? '#3b82f6' : '#94a3b8'} style={{ marginBottom: 8 }} />
-                    <Typography variant="body2" sx={{ fontWeight: 'bold', display: 'block', fontFamily: 'monospace', fontSize: '0.8rem' }}>EXTRACTOR CO₂</Typography>
-                    <Typography variant="caption" sx={{ color: latestReading.extractor_co2 === 1 ? '#3b82f6' : '#94a3b8', fontWeight: 800, fontFamily: 'monospace' }}>
-                      {latestReading.extractor_co2 === 1 ? 'ON (ACTIVO)' : 'OFF (DESACTIVADO)'}
+                {/* CO2 Extractor */}
+                <Grid item xs={6} sm={3}>
+                  <Box sx={{ 
+                    p: 1.5, 
+                    bgcolor: latestReading.extractor_co2 === 1 ? 'rgba(59, 130, 246, 0.05)' : '#0f1419', 
+                    border: `1px solid ${latestReading.extractor_co2 === 1 ? '#3b82f6' : '#1a2332'}`, 
+                    borderRadius: '2px', 
+                    textAlign: 'center' 
+                  }}>
+                    <Wind size={16} color={latestReading.extractor_co2 === 1 ? '#3b82f6' : '#94a3b8'} style={{ marginBottom: 4 }} />
+                    <Typography variant="caption" sx={{ display: 'block', color: '#94a3b8', fontSize: '0.65rem' }}>EXTRACTOR CO₂</Typography>
+                    <Typography variant="caption" sx={{ fontWeight: 'bold', color: latestReading.extractor_co2 === 1 ? '#3b82f6' : '#94a3b8' }}>
+                      {latestReading.extractor_co2 === 1 ? 'ACTIVO (ON)' : 'STANDBY (OFF)'}
                     </Typography>
                   </Box>
                 </Grid>
@@ -521,18 +473,47 @@ export function DashboardView() {
             </CardContent>
           </Card>
         </Grid>
+
+        {/* Monitoreo Eléctrico Rápido */}
+        <Grid item xs={12} md={4}>
+          <Card sx={{ bgcolor: '#1a2332', border: '1px solid #2d3b50', borderRadius: '2px', height: '100%' }}>
+            <Box sx={{ bgcolor: '#151c27', px: 2, py: 1, borderBottom: '1px solid #2d3b50' }}>
+              <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#3b82f6', letterSpacing: '0.5px' }}>
+                &gt;_ LECTURA DE RED (PZEM-004T)
+              </Typography>
+            </Box>
+            <CardContent sx={{ p: 2 }}>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #1a2332', pb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: '#94a3b8' }}>Potencia Activa:</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <Zap size={11} color="#f59e0b" /> {latestReading.potencia != null ? `${Number(latestReading.potencia).toFixed(1)} W` : 'N/A'}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px dashed #1a2332', pb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: '#94a3b8' }}>Voltaje RMS:</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#e2e8f0' }}>
+                    {latestReading.voltaje != null ? `${Number(latestReading.voltaje).toFixed(1)} V` : 'N/A'}
+                  </Typography>
+                </Box>
+                <Box sx={{ display: 'flex', justifyContent: 'space-between', pb: 0.5 }}>
+                  <Typography variant="caption" sx={{ color: '#94a3b8' }}>Corriente de Línea:</Typography>
+                  <Typography variant="caption" sx={{ fontWeight: 'bold', color: '#e2e8f0' }}>
+                    {latestReading.corriente != null ? `${Number(latestReading.corriente).toFixed(2)} A` : 'N/A'}
+                  </Typography>
+                </Box>
+              </Box>
+            </CardContent>
+          </Card>
+        </Grid>
       </Grid>
 
-      {/* 6. PIE DE PÁGINA SCADA Y VERIFICACIÓN DE FIRMWARE */}
-      <Box sx={{ mt: 4 }}>
-        <Card sx={{ bgcolor: '#1a2332', borderColor: '#2d3b50', borderWidth: '1px', borderStyle: 'solid', borderRadius: '4px' }}>
-          <CardContent sx={{ py: 1.5, px: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-            <Lock size={14} style={{ color: '#94a3b8' }} />
-            <Typography variant="caption" sx={{ color: '#94a3b8', fontFamily: 'monospace' }}>
-              <strong>MODO DE TRABAJO SEGURO:</strong> Los valores indicados como &quot;Set&quot; o &quot;Límites&quot; corresponden a los perfiles predefinidos en la flash local del ESP32. La modificación remota de estados lógicos a través de la nube requiere autenticación y asignación explícita de perfil de biomasa en la pestaña de Controles.
-            </Typography>
-          </CardContent>
-        </Card>
+      {/* Nota de Pie SCADA */}
+      <Box sx={{ mt: 3, p: 1.5, bgcolor: '#141b25', border: '1px solid #1a2332', borderRadius: '2px', display: 'flex', alignItems: 'center', gap: 1 }}>
+        <Lock size={12} color="#94a3b8" />
+        <Typography variant="caption" sx={{ color: '#94a3b8', fontSize: '0.65rem' }}>
+          <strong>CUMPLIMIENTO DE CONTRATO LÓGICO:</strong> Los setpoints mostrados en esta vista reflejan el estado aplicado reportado directamente por el hardware en su última transmisión de telemetría (Nivel 3). Ningún valor es decorativo ni simulado.
+        </Typography>
       </Box>
 
     </Box>
