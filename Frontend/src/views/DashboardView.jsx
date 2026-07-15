@@ -501,7 +501,7 @@ export function DashboardView() {
                     <Lightbulb size={24} color={latestReading.luz === 1 ? '#f59e0b' : '#94a3b8'} style={{ marginBottom: 8 }} />
                     <Typography variant="body2" sx={{ fontWeight: 'bold', display: 'block', fontFamily: 'monospace', fontSize: '0.8rem' }}>ILUMINACIÓN</Typography>
                     <Typography variant="caption" sx={{ color: latestReading.luz === 1 ? '#f59e0b' : '#94a3b8', fontWeight: 800, fontFamily: 'monospace' }}>
-                      {latestReading.luz === 1 ? 'ON (ACTIVA)' : 'OFF (DESACTIVADA)'}
+                      {latestReading.luz === 1 ? 'ON (ACTIV)' : 'OFF (DESACTIVADA)'}
                     </Typography>
                   </Box>
                 </Grid>
