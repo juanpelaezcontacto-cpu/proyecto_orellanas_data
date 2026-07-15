@@ -1,8 +1,8 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid2 as Grid, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton } from '@mui/material';
+import { Box, Grid, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend } from 'recharts';
 import { useTelemetry } from '../context/TelemetryContext';
-import { Zap, Activity, ShieldAlert } from 'lucide-react';
+import { Zap, Activity } from 'lucide-react';
 
 export const EnergiaView = () => {
   const { data } = useTelemetry();
@@ -40,27 +40,26 @@ export const EnergiaView = () => {
         </ToggleButtonGroup>
       </Box>
 
-      {/* Grid de estado actual rápido */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
-        <Grid size={{ xs: 6, sm: 3 }}>
+        <Grid item xs={6} sm={3}>
           <Card sx={{ textAlign: 'center', p: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>TENSIÓN EFICAZ</Typography>
             <Typography variant="h5" sx={{ fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold' }}>{latest.voltaje ? `${latest.voltaje} V` : 'N/A'}</Typography>
           </Card>
         </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
+        <Grid item xs={6} sm={3}>
           <Card sx={{ textAlign: 'center', p: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>CORRIENTE NETA</Typography>
             <Typography variant="h5" sx={{ fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold' }}>{latest.corriente_neta ? `${latest.corriente_neta} A` : 'N/A'}</Typography>
           </Card>
         </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
+        <Grid item xs={6} sm={3}>
           <Card sx={{ textAlign: 'center', p: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>POTENCIA ACTIVA</Typography>
             <Typography variant="h5" sx={{ fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold', color: 'primary.main' }}>{latest.potencia_w ? `${latest.potencia_w} W` : 'N/A'}</Typography>
           </Card>
         </Grid>
-        <Grid size={{ xs: 6, sm: 3 }}>
+        <Grid item xs={6} sm={3}>
           <Card sx={{ textAlign: 'center', p: 1 }}>
             <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 'bold' }}>ENERGÍA ACUMULADA</Typography>
             <Typography variant="h5" sx={{ fontFamily: 'monospace', mt: 0.5, fontWeight: 'bold' }}>{latest.energia_kwh ? `${latest.energia_kwh.toFixed(3)} kWh` : 'N/A'}</Typography>
@@ -68,7 +67,6 @@ export const EnergiaView = () => {
         </Grid>
       </Grid>
 
-      {/* Gráfica 1: Perfil de Potencia */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -89,7 +87,6 @@ export const EnergiaView = () => {
         </CardContent>
       </Card>
 
-      {/* Gráfica 2: Tensión y Corriente */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>

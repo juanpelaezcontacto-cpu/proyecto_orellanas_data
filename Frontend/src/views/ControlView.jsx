@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { Box, Card, CardContent, Typography, FormControl, InputLabel, Select, MenuItem, Switch, FormControlLabel, Button, Alert, Divider, CircularProgress } from '@mui/material';
-import { Save, AlertTriangle, ShieldCheck } from 'lucide-react';
+import { Box, Card, CardContent, Typography, FormControl, InputLabel, Select, MenuItem, Switch, FormControlLabel, Button, Alert, Divider, CircularProgress, Grid } from '@mui/material';
+import { Save, AlertTriangle } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
 import { supabase } from '../supabaseClient';
 import { ESPECIE_LABEL, FASE_LABEL } from '../services/supabaseService';
@@ -10,7 +10,6 @@ export const ControlView = () => {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState(null);
 
-  // Inicializar estado local desde el firmware para resolver el bug de desincronización tras refresh
   useEffect(() => {
     if (controlState) {
       setForm({
@@ -40,7 +39,6 @@ export const ControlView = () => {
     try {
       setSaving(true);
       
-      // Mutación estricta a fila 1
       const { error } = await supabase
         .from('controles')
         .update({
@@ -69,18 +67,17 @@ export const ControlView = () => {
       <Typography variant="h5" sx={{ fontWeight: 800, mb: 3 }}>CONSIGNAS DE CONTROL REAL (NIVEL 1)</Typography>
 
       <Alert severity="warning" sx={{ mb: 3, border: '1px solid #f59e0b' }} icon={<AlertTriangle />}>
-        <strong>ADVERTENCIA DE SEGURIDAD:</strong> Estas acciones modifican de inmediato las salidas físicas del ESP32 en el cultivo biológico vivo. Asegúrate de haber verificado que las políticas <strong>Row Level Security (RLS)</strong> estén configuradas para evitar inyecciones arbitrarias de terceros en la tabla <code>controles</code>.
+        <strong>ADVERTENCIA DE SEGURIDAD:</strong> Estas acciones modifican de inmediato las salidas físicas del ESP32 en el cultivo. Asegúrate de configurar las políticas RLS de Supabase en la tabla <code>controles</code>.
       </Alert>
 
       <Card>
         <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: 3 }}>
-          {/* Bloque: Selección de Perfil */}
           <Box>
             <Typography variant="h6" sx={{ mb: 2, fontSize: '0.9rem', fontWeight: 'bold', color: 'primary.main' }}>
               SELECCIÓN DE PERFIL DE BIOMASA (El firmware aplicará setpoints embebidos)
             </Typography>
             <Grid container spacing={2}>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid item xs={12} sm={6}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Especie</InputLabel>
                   <Select value={form.especie} label="Especie" onChange={(e) => handleChange('especie', Number(e.target.value))}>
@@ -89,7 +86,7 @@ export const ControlView = () => {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid size={{ xs: 12, sm: 6 }}>
+              <Grid item xs={12} sm={6}>
                 <FormControl fullWidth size="small">
                   <InputLabel>Fase del Cultivo</InputLabel>
                   <Select value={form.fase} label="Fase del Cultivo" onChange={(e) => handleChange('fase', Number(e.target.value))}>
@@ -100,13 +97,12 @@ export const ControlView = () => {
               </Grid>
             </Grid>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
-              * Al cambiar la especie o fase, el firmware forzará sus límites internos en la EEPROM / memoria local.
+              * Al cambiar la especie o fase, el firmware forzará sus límites internos en la EEPROM.
             </Typography>
           </Box>
 
           <Divider sx={{ borderColor: '#2d3748' }} />
 
-          {/* Bloque: Vetos Remotos */}
           <Box>
             <Typography variant="h6" sx={{ mb: 1.5, fontSize: '0.9rem', fontWeight: 'bold', color: 'primary.main' }}>
               VETOS / PERMISOS DE ACTUACIÓN DESDE LA NUBE
@@ -133,13 +129,12 @@ export const ControlView = () => {
 
           <Divider sx={{ borderColor: '#2d3748' }} />
 
-          {/* Información Solo Lectura del Lazo */}
           <Box sx={{ bgcolor: 'rgba(255, 255, 255, 0.02)', p: 1.5, borderRadius: 1, border: '1px solid #2d3748' }}>
             <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1, fontWeight: 'bold' }}>
               ESTADO DEL LAZO DE TEMPERATURA (DERIVADO POR FIRMWARE)
             </Typography>
             <Typography variant="body2">
-              Setpoint de Temperatura: <strong>{controlState?.setpoint_temp ? `${controlState.setpoint_temp}°C` : 'N/A'}</strong> (Lectura de consigna activa en controles).
+              Setpoint de Temperatura: <strong>{controlState?.setpoint_temp ? `${controlState.setpoint_temp}°C` : 'N/A'}</strong>.
             </Typography>
           </Box>
 

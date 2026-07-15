@@ -1,23 +1,22 @@
 import React, { useState, useMemo } from 'react';
-import { Box, Grid2 as Grid, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton, Divider } from '@mui/material';
+import { Box, Typography, Card, CardContent, ToggleButtonGroup, ToggleButton } from '@mui/material';
 import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, ComposedChart, Bar } from 'recharts';
 import { useTelemetry } from '../context/TelemetryContext';
-import { Thermometer, Droplets, Wind, AlertTriangle } from 'lucide-react';
+import { Thermometer, Droplets, Wind } from 'lucide-react';
 
 export const ClimaView = () => {
-  const { data, loading } = useTelemetry();
-  const [timeRange, setTimeRange] = useState(6); // Horas por defecto
+  const { data } = useTelemetry();
+  const [timeRange, setTimeRange] = useState(6);
 
   const filteredData = useMemo(() => {
     if (data.length === 0) return [];
     const cutoffTime = Date.now() - timeRange * 60 * 60 * 1000;
     const result = data.filter(d => d.timestamp >= cutoffTime);
-    return result.length > 0 ? result : data; // Fallback si no hay datos en el rango
+    return result.length > 0 ? result : data;
   }, [data, timeRange]);
 
   const latest = data[data.length - 1] || {};
 
-  // Formateador de tiempo para el eje X de las gráficas
   const formatXAxis = (tickItem) => {
     try {
       return new Date(tickItem).toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit', hour12: false });
@@ -45,7 +44,6 @@ export const ClimaView = () => {
         </ToggleButtonGroup>
       </Box>
 
-      {/* Gráfica 1: Temperatura de Lazo Cerrado y Estratificación */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -72,7 +70,6 @@ export const ClimaView = () => {
         </CardContent>
       </Card>
 
-      {/* Gráfica 2: Humedad Relativa */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -102,7 +99,6 @@ export const ClimaView = () => {
         </CardContent>
       </Card>
 
-      {/* Gráfica 3: CO2 */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>

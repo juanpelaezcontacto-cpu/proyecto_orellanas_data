@@ -1,6 +1,6 @@
 import React from 'react';
-import { Box, Grid2 as Grid, Typography, Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Alert, Stack } from '@mui/material';
-import { AlertTriangle, Clock, Play, RotateCcw, ShieldCheck, HelpCircle } from 'lucide-react';
+import { Box, Grid, Typography, Card, CardContent, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Stack } from '@mui/material';
+import { AlertTriangle, Clock, RotateCcw, ShieldCheck, HelpCircle } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
 
 export const DiagnosticoView = () => {
@@ -8,17 +8,15 @@ export const DiagnosticoView = () => {
 
   const latest = data[data.length - 1] || {};
 
-  // Umbrales de fatiga adaptados a la ventana actual de 20 muestras
-  const isHumFatigued = analysis.cycles.humidificador > 8; // Histéresis estrecha
-  const isCompFatigued = analysis.cycles.compresor > 4;    // Peligro de daño por calor / relé pegado
+  const isHumFatigued = analysis.cycles.humidificador > 8; 
+  const isCompFatigued = analysis.cycles.compresor > 4;    
 
   return (
     <Box>
       <Typography variant="h5" sx={{ fontWeight: 800, mb: 3 }}>AUTODIAGNÓSTICO E INTEGRIDAD FISICA</Typography>
 
       <Grid container spacing={3}>
-        {/* Panel 1: Alarmas de Sensores Físicos */}
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
@@ -55,8 +53,7 @@ export const DiagnosticoView = () => {
           </Card>
         </Grid>
 
-        {/* Panel 2: Tiempos y Sincronía NTP */}
-        <Grid size={{ xs: 12, md: 6 }}>
+        <Grid item xs={12} md={6}>
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
@@ -93,34 +90,33 @@ export const DiagnosticoView = () => {
           </Card>
         </Grid>
 
-        {/* Panel 3: Análisis de Fatiga por Conmutación de Relés */}
-        <Grid size={{ xs: 12 }}>
+        <Grid item xs={12}>
           <Card>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold' }}>
                 <RotateCcw size={20} /> ANÁLISIS FORENSE DE FATIGA DE RELES (Últimas 20 muestras)
               </Typography>
               <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 6 }}>
+                <Grid item xs={12} sm={6}>
                   <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: isHumFatigued ? '#f59e0b' : '#22c55e', bgcolor: isHumFatigued ? 'rgba(245, 158, 11, 0.05)' : 'transparent' }}>
                     <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>CICLOS HUMIDIFICADOR</Typography>
                     <Typography variant="h4" sx={{ fontFamily: 'monospace', fontWeight: 'bold', my: 1 }}>{analysis.cycles.humidificador}</Typography>
                     {isHumFatigued ? (
                       <Typography variant="caption" color="warning.main" sx={{ display: 'block', fontWeight: 'bold' }}>
-                        ⚠️ Histéresis demasiado estrecha. Riesgo de arco eléctrico continuo.
+                        ⚠️ Histéresis estrecha. Riesgo de arco eléctrico continuo.
                       </Typography>
                     ) : (
                       <Typography variant="caption" color="success.main">Frecuencia de conmutación segura.</Typography>
                     )}
                   </Box>
                 </Grid>
-                <Grid size={{ xs: 12, sm: 6 }}>
+                <Grid item xs={12} sm={6}>
                   <Box sx={{ p: 2, borderRadius: 1, border: '1px solid', borderColor: isCompFatigued ? '#ef4444' : '#22c55e', bgcolor: isCompFatigued ? 'rgba(239, 68, 68, 0.05)' : 'transparent' }}>
                     <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 'bold' }}>CICLOS COMPRESOR</Typography>
                     <Typography variant="h4" sx={{ fontFamily: 'monospace', fontWeight: 'bold', my: 1 }}>{analysis.cycles.compresor}</Typography>
                     {isCompFatigued ? (
                       <Typography variant="caption" color="error.main" sx={{ display: 'block', fontWeight: 'bold' }}>
-                        🚨 PELIGRO: Exceso de arranque del motor. Riesgo de soldadura de contactos en relé.
+                        🚨 PELIGRO: Exceso de arranques. Riesgo de pegado de contactos del relé.
                       </Typography>
                     ) : (
                       <Typography variant="caption" color="success.main">Compresor operando en ciclos estables.</Typography>
@@ -132,15 +128,11 @@ export const DiagnosticoView = () => {
           </Card>
         </Grid>
 
-        {/* Panel 4: Campos Nivel 2 (Ignorados por Firmware) */}
-        <Grid size={{ xs: 12 }}>
+        <Grid item xs={12}>
           <Card sx={{ border: '1px dashed #4a5568' }}>
             <CardContent>
               <Typography variant="h6" sx={{ mb: 1, display: 'flex', alignItems: 'center', gap: 1, fontWeight: 'bold', color: 'text.secondary' }}>
                 <HelpCircle size={20} /> CAMPOS DE NIVEL 2 (IGNORADOS POR EL FIRMWARE ACTUAL)
-              </Typography>
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Los siguientes valores están serializados en la base de datos <code>controles</code>, pero el firmware remoto actual **no está programado** para consumirlos. Cambiar estos parámetros aquí **no** alterará el funcionamiento del cultivo físico.
               </Typography>
               <TableContainer sx={{ bgcolor: 'rgba(0, 0, 0, 0.2)', borderRadius: 1 }}>
                 <Table size="small">
