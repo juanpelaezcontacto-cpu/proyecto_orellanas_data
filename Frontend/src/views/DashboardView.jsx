@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { Box, Grid, Card, CardContent, Typography, Alert, AlertTitle, CircularProgress, Tooltip } from '@mui/material';
-import { Thermometer, Droplet, Wind, Activity, Bell, ShieldCheck, ThermometerSnowflake, Lightbulb, Lock, HelpCircle } from 'lucide-react';
+import { Thermometer, Droplet, Wind, Activity, Bell, ShieldCheck, ThermometerSnowflake, Lightbulb, Lock, HelpCircle, Zap } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
 import { LineChart, Line, ResponsiveContainer } from 'recharts';
 
@@ -295,7 +295,7 @@ export function DashboardView() {
                 {/* Humidificador */}
                 <Grid item xs={6} md={3}>
                   <Box sx={{ p: 2, bgcolor: 'background.default', borderRadius: 1, border: '1px solid #2d3b50', textAlign: 'center' }}>
-                    <Droplet size={24} color={latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8'} style={{ marginBottom: 8 }} style={{ marginBottom: 8 }} />
+                    <Droplet size={24} color={latestReading.humidificador === 1 ? '#22c55e' : '#94a3b8'} style={{ marginBottom: 8 }} />
                     <Typography variant="body2" sx={{ fontWeight: 'bold', display: 'block' }}>HUMIDIFICADOR</Typography>
                     <Typography variant="caption" sx={{ color: latestReading.humidificador === 1 ? 'success.main' : 'text.secondary', fontWeight: 'bold' }}>
                       {latestReading.humidificador === 1 ? 'ON (Nebulizando)' : 'OFF'}
@@ -337,7 +337,7 @@ export function DashboardView() {
           <CardContent sx={{ py: 1.5, px: 2, display: 'flex', alignItems: 'center', gap: 1.5 }}>
             <Lock size={16} style={{ color: '#94a3b8' }} />
             <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-              <strong>Nota de Seguridad Fímica:</strong> Los estados mostrados representan la retroalimentación directa de los pines físicos del ESP32. Las conmutaciones dependen estrictamente del firmware. Los comandos de sobreescritura manual requieren credenciales validadas de Operador en la vista de Controles.
+              <strong>Nota de Seguridad Física:</strong> Los estados mostrados representan la retroalimentación directa de los pines físicos del ESP32. Las conmutaciones dependen estrictamente del firmware. Los comandos de sobreescritura manual requieren credenciales validadas de Operador en la vista de Controles.
             </Typography>
           </CardContent>
         </Card>
