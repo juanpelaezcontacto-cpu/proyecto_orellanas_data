@@ -468,7 +468,7 @@ void controlarHumedadCultivo() {
   // sobre una lectura potencialmente vieja: mantenemos el último estado en
   // vez de alternar el humidificador a ciegas.
   if (err_scd != 0) {
-    if(estado_humidificador == true)s{
+    if(estado_humidificador == true){
       estado_humidificador = false;
       digitalWrite(humidificador, LOW);
       Serial.println("🚨 Sensor SCD offline. Humidificador apagado de emergencia.");
