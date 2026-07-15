@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, Component } from 'react';
 import { ThemeProvider, Box, CssBaseline, AppBar, Toolbar, Typography, Button, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, BottomNavigation, BottomNavigationAction, Paper, useMediaQuery } from '@mui/material';
 import { LayoutDashboard, CloudSun, Zap, Sliders, ShieldAlert, LogOut, LogIn } from 'lucide-react';
 
@@ -9,19 +9,68 @@ import { theme } from './theme/industrialTheme';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TelemetryProvider, useTelemetry } from './context/TelemetryContext';
 
-// CORRECCIÓN DE IMPORTACIONES: Uso estricto de Named Imports { }
+// Named Imports de tus vistas
 import { DashboardView } from './views/DashboardView';
 import { ClimaView } from './views/ClimaView';
 import { EnergiaView } from './views/EnergiaView';
 import { ControlView } from './views/ControlView';
 import { DiagnosticoView } from './views/DiagnosticoView';
 
+// ==========================================
+// 1. MANEJADOR DE ERRORES CRÍTICOS EN PANTALLA (ErrorBoundary)
+// ==========================================
+class ErrorBoundary extends Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error, errorInfo) {
+    console.error("Falla crítica capturada por ErrorBoundary:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <Box sx={{ p: 4, bgcolor: '#0f1419', color: '#ef4444', minHeight: '100vh', fontFamily: 'monospace' }}>
+          <Typography variant="h5" sx={{ fontWeight: 'bold', mb: 2 }}>
+            ⚠️ ERROR EN TIEMPO DE EJECUCIÓN (SYSTEM HALT)
+          </Typography>
+          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 3 }}>
+            La interfaz de usuario se detuvo para prevenir inconsistencias de datos en el hardware.
+          </Typography>
+          <Box sx={{ p: 2, bgcolor: '#1a2332', borderRadius: 1, border: '1px solid #ef4444', overflowX: 'auto', mb: 3 }}>
+            <pre style={{ margin: 0, color: '#ef4444', fontWeight: 'bold' }}>
+              {this.state.error?.toString()}
+            </pre>
+            <pre style={{ margin: 0, marginTop: '15px', fontSize: '11px', color: '#94a3b8' }}>
+              {this.state.error?.stack}
+            </pre>
+          </Box>
+          <Button variant="contained" color="error" onClick={() => window.location.reload()}>
+            Forzar Reinicio del Panel
+          </Button>
+        </Box>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+// ==========================================
+// 2. CONFIGURACIÓN DINÁMICA DE VISTAS (PUNTOS CIEGOS ELIMINADOS)
+// ==========================================
+// Almacenamos la clase/función del componente (ej: ClimaView), NO la etiqueta instanciada (<ClimaView />)
 const viewsList = [
-  { id: 0, label: 'Dashboard', icon: <LayoutDashboard size={20} />, component: <DashboardView /> },
-  { id: 1, label: 'Clima', icon: <CloudSun size={20} />, component: <ClimaView /> },
-  { id: 2, label: 'Energía', icon: <Zap size={20} />, component: <EnergiaView /> },
-  { id: 3, label: 'Controles', icon: <Sliders size={20} />, component: <ControlView /> },
-  { id: 4, label: 'Diagnóstico', icon: <ShieldAlert size={20} />, component: <DiagnosticoView /> },
+  { id: 0, label: 'Dashboard', icon: <LayoutDashboard size={20} />, component: DashboardView },
+  { id: 1, label: 'Clima', icon: <CloudSun size={20} />, component: ClimaView },
+  { id: 2, label: 'Energía', icon: <Zap size={20} />, component: EnergiaView },
+  { id: 3, label: 'Controles', icon: <Sliders size={20} />, component: ControlView },
+  { id: 4, label: 'Diagnóstico', icon: <ShieldAlert size={20} />, component: DiagnosticoView },
 ];
 
 const DRAWER_WIDTH = 240;
@@ -33,7 +82,6 @@ function LayoutShell() {
   
   const isMobile = useMediaQuery('(max-width:767px)');
 
-  // Evaluación del estado de conexión basado en la marca de tiempo de la última lectura
   const getConnectionStatus = () => {
     if (!latestReading || !latestReading.created_at) return { label: 'DESCONOCIDO', color: 'text.secondary' };
     const diffMin = (new Date() - new Date(latestReading.created_at)) / 1000 / 60;
@@ -44,6 +92,9 @@ function LayoutShell() {
   };
 
   const status = getConnectionStatus();
+
+  // Instanciación dinámica bajo demanda
+  const SelectedView = viewsList[activeTab].component;
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', color: 'text.primary' }}>
@@ -138,7 +189,7 @@ function LayoutShell() {
                   variant="contained" 
                   size="small" 
                   startIcon={<LogIn size={14} />} 
-                  onClick={() => setActiveTab(3)} // Redirección directa al panel de autenticación
+                  onClick={() => setActiveTab(3)}
                 >
                   {!isMobile && 'Acceso'}
                 </Button>
@@ -147,9 +198,9 @@ function LayoutShell() {
           </Toolbar>
         </AppBar>
 
-        {/* CONTENEDOR ACTIVO DE VISTA */}
+        {/* RENDERIZADO AISLADO BAJO DEMANDA */}
         <Box sx={{ flexGrow: 1 }}>
-          {viewsList[activeTab].component}
+          <SelectedView />
         </Box>
       </Box>
 
@@ -182,13 +233,15 @@ function LayoutShell() {
 
 export default function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <AuthProvider>
-        <TelemetryProvider>
-          <LayoutShell />
-        </TelemetryProvider>
-      </AuthProvider>
-    </ThemeProvider>
+    <ErrorBoundary>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <AuthProvider>
+          <TelemetryProvider>
+            <LayoutShell />
+          </TelemetryProvider>
+        </AuthProvider>
+      </ThemeProvider>
+    </ErrorBoundary>
   );
 }
