@@ -2,20 +2,19 @@ import React, { useState } from 'react';
 import { ThemeProvider, Box, CssBaseline, AppBar, Toolbar, Typography, Button, Drawer, List, ListItem, ListItemButton, ListItemIcon, ListItemText, BottomNavigation, BottomNavigationAction, Paper, useMediaQuery } from '@mui/material';
 import { LayoutDashboard, CloudSun, Zap, Sliders, ShieldAlert, LogOut, LogIn } from 'lucide-react';
 
-// Corrección de la ruta del Tema
+// Importación del Tema Central
 import { theme } from './theme/industrialTheme'; 
 
 // Importación de Contextos
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { TelemetryProvider, useTelemetry } from './context/TelemetryContext';
 
-// Importación de las 6 Vistas reales según tu árbol de archivos
+// CORRECCIÓN DE IMPORTACIONES: Uso estricto de Named Imports { }
 import { DashboardView } from './views/DashboardView';
 import { ClimaView } from './views/ClimaView';
 import { EnergiaView } from './views/EnergiaView';
 import { ControlView } from './views/ControlView';
 import { DiagnosticoView } from './views/DiagnosticoView';
-import { LoginView } from './views/LoginView';
 
 const viewsList = [
   { id: 0, label: 'Dashboard', icon: <LayoutDashboard size={20} />, component: <DashboardView /> },
@@ -32,10 +31,9 @@ function LayoutShell() {
   const { user, role, logout } = useAuth();
   const { latestReading } = useTelemetry();
   
-  const isDesktop = useMediaQuery('(min-width:1200px)');
   const isMobile = useMediaQuery('(max-width:767px)');
 
-  // Evaluación del estado de conexión inferida por antigüedad de la última telemetría
+  // Evaluación del estado de conexión basado en la marca de tiempo de la última lectura
   const getConnectionStatus = () => {
     if (!latestReading || !latestReading.created_at) return { label: 'DESCONOCIDO', color: 'text.secondary' };
     const diffMin = (new Date() - new Date(latestReading.created_at)) / 1000 / 60;
@@ -50,7 +48,7 @@ function LayoutShell() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', color: 'text.primary' }}>
       
-      {/* SIDEBAR PARA DESKTOP / TABLETS */}
+      {/* SIDEBAR PARA ESCRITORIO */}
       {!isMobile && (
         <Drawer
           variant="permanent"
@@ -92,10 +90,10 @@ function LayoutShell() {
         </Drawer>
       )}
 
-      {/* CONTENIDO PRINCIPAL */}
+      {/* CONTENEDOR DE CONTENIDO */}
       <Box sx={{ flexGrow: 1, pb: isMobile ? 10 : 2, display: 'flex', flexDirection: 'column' }}>
         
-        {/* APP BAR (Header) */}
+        {/* ENCABEZADO */}
         <AppBar position="sticky" elevation={0} sx={{ borderBottom: '1px solid #2d3b50', bgcolor: 'background.paper' }}>
           <Toolbar sx={{ justifyContent: 'space-between' }}>
             {isMobile && (
@@ -104,7 +102,7 @@ function LayoutShell() {
               </Typography>
             )}
             
-            {/* Status de Conexión Inferido */}
+            {/* Semáforo de Conectividad */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
               <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: status.color }} />
               <Typography variant="caption" sx={{ fontFamily: 'monospace', fontWeight: 700, color: status.color }}>
@@ -112,12 +110,12 @@ function LayoutShell() {
               </Typography>
               {!isMobile && (
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  (Inferido por última telemetría)
+                  (Última telemetría)
                 </Typography>
               )}
             </Box>
 
-            {/* Gestión de Sesión */}
+            {/* Credenciales de Operador */}
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
               {user && !isMobile && (
                 <Typography variant="caption" sx={{ color: 'text.secondary' }}>
@@ -140,7 +138,7 @@ function LayoutShell() {
                   variant="contained" 
                   size="small" 
                   startIcon={<LogIn size={14} />} 
-                  onClick={() => setActiveTab(3)} // Redirige a la pestaña que use autenticación (ej: Controles/Login)
+                  onClick={() => setActiveTab(3)} // Redirección directa al panel de autenticación
                 >
                   {!isMobile && 'Acceso'}
                 </Button>
@@ -149,13 +147,13 @@ function LayoutShell() {
           </Toolbar>
         </AppBar>
 
-        {/* CONTENEDOR DE LA VISTA SELECCIONADA */}
+        {/* CONTENEDOR ACTIVO DE VISTA */}
         <Box sx={{ flexGrow: 1 }}>
           {viewsList[activeTab].component}
         </Box>
       </Box>
 
-      {/* BOTTOM NAV PARA DISPOSITIVOS MÓVILES */}
+      {/* MENÚ INFERIOR EN MÓVILES */}
       {isMobile && (
         <Paper sx={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 1000, borderTop: '1px solid #2d3b50' }} elevation={3}>
           <BottomNavigation

@@ -4,6 +4,7 @@ import { ResponsiveContainer, LineChart, Line, XAxis, YAxis, CartesianGrid, Tool
 import { useTelemetry } from '../context/TelemetryContext';
 import { Thermometer, Droplets, Wind } from 'lucide-react';
 
+
 export const ClimaView = () => {
   const { data } = useTelemetry();
   const [timeRange, setTimeRange] = useState(6);

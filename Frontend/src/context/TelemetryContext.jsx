@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../supabaseClient';
+
 const TelemetryContext = createContext();
 
 export function TelemetryProvider({ children }) {
   const [loading, setLoading] = useState(true);
   const [historicalData, setHistoricalData] = useState([]);
   const [latestReading, setLatestReading] = useState(null);
-  const [timeRange, setTimeRange] = useState(12); // Ventana por defecto: 12 horas
+  const [timeRange, setTimeRange] = useState(12); // Ventana de visualización por defecto
 
   const fetchTelemetry = async () => {
     try {
@@ -15,7 +16,7 @@ export function TelemetryProvider({ children }) {
       timeLimit.setHours(timeLimit.getHours() - timeRange);
       const isoTimeLimit = timeLimit.toISOString();
 
-      // Query paralela para optimizar tiempos de carga de red
+      // 1. Intento de carga dentro de la ventana de tiempo seleccionada
       const [resSensores, resEnergia, resEstado] = await Promise.all([
         supabase
           .from('lecturas_sensores')
@@ -38,40 +39,62 @@ export function TelemetryProvider({ children }) {
       if (resEnergia.error) throw resEnergia.error;
       if (resEstado.error) throw resEstado.error;
 
-      // Diccionario temporal para unificar por timestamp aproximado o exacto
-      const fusedMap = {};
+      let fusedMap = {};
 
-      // 1. Mapear sensores
-      resSensores.data.forEach((item) => {
-        const ts = item.created_at;
-        fusedMap[ts] = { ...fusedMap[ts], ...item };
+      resSensores.data?.forEach((item) => {
+        fusedMap[item.created_at] = { ...fusedMap[item.created_at], ...item };
+      });
+      resEnergia.data?.forEach((item) => {
+        fusedMap[item.created_at] = { ...fusedMap[item.created_at], ...item };
+      });
+      resEstado.data?.forEach((item) => {
+        fusedMap[item.created_at] = { ...fusedMap[item.created_at], ...item };
       });
 
-      // 2. Fusionar datos de energía
-      resEnergia.data.forEach((item) => {
-        const ts = item.created_at;
-        fusedMap[ts] = { ...fusedMap[ts], ...item };
-      });
-
-      // 3. Fusionar estados del sistema
-      resEstado.data.forEach((item) => {
-        const ts = item.created_at;
-        fusedMap[ts] = { ...fusedMap[ts], ...item };
-      });
-
-      // Convertir el mapa de vuelta a una lista ordenada cronológicamente
-      const sortedFused = Object.values(fusedMap).sort(
+      let sortedFused = Object.values(fusedMap).sort(
         (a, b) => new Date(a.created_at) - new Date(b.created_at)
       );
 
-      setHistoricalData(sortedFused);
-      if (sortedFused.length > 0) {
-        setLatestReading(sortedFused[sortedFused.length - 1]);
+      // 2. MECANISMO DE FALLBACK: Si no hay telemetría reciente, buscamos el último estado conocido
+      if (sortedFused.length === 0) {
+        const [fallbackSens, fallbackEner, fallbackEst] = await Promise.all([
+          supabase.from('lecturas_sensores').select('*').order('created_at', { ascending: false }).limit(1),
+          supabase.from('monitoreo_energetico').select('*').order('created_at', { ascending: false }).limit(1),
+          supabase.from('estado_sistema').select('*').order('created_at', { ascending: false }).limit(1),
+        ]);
+
+        const latestSens = fallbackSens.data?.[0] || null;
+        const latestEner = fallbackEner.data?.[0] || null;
+        const latestEst = fallbackEst.data?.[0] || null;
+
+        if (latestSens || latestEner || latestEst) {
+          // Fusionamos las últimas piezas de información disponibles en la BD
+          const mergedFallback = {
+            ...latestSens,
+            ...latestEner,
+            ...latestEst,
+            // Usamos la marca de tiempo más reciente de las tres disponibles para reportar el desajuste
+            created_at: [
+              latestSens?.created_at,
+              latestEner?.created_at,
+              latestEst?.created_at
+            ]
+              .filter(Boolean)
+              .sort((a, b) => new Date(b) - new Date(a))[0]
+          };
+
+          setLatestReading(mergedFallback);
+          setHistoricalData([mergedFallback]); // Poblamos el histórico con un nodo base para que las gráficas no exploten
+        } else {
+          setLatestReading(null);
+          setHistoricalData([]);
+        }
       } else {
-        setLatestReading(null);
+        setHistoricalData(sortedFused);
+        setLatestReading(sortedFused[sortedFused.length - 1]);
       }
     } catch (error) {
-      console.error('Error crítico en la fusión de telemetría:', error.message);
+      console.error('Error crítico en el motor de fusión SCADA:', error.message);
     } finally {
       setLoading(false);
     }
@@ -80,7 +103,7 @@ export function TelemetryProvider({ children }) {
   useEffect(() => {
     fetchTelemetry();
     
-    // Suscripción en tiempo real a las tres tablas independientes
+    // Suscripción de tiempo real a los tres hilos
     const channel = supabase
       .channel('schema-db-changes')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'lecturas_sensores' }, () => fetchTelemetry())
