@@ -3,6 +3,7 @@ import { ThemeProvider, CssBaseline } from '@mui/material';
 import { TelemetryProvider } from './context/TelemetryContext';
 import { industrialTheme } from './theme/industrialTheme';
 import { Layout } from './components/Layout';
+import { AuthProvider } from './context/AuthContext';
 
 // Vistas
 import { DashboardView } from './views/DashboardView';
@@ -30,7 +31,11 @@ function App() {
         return <DashboardView />;
     }
   };
-
+  return (
+    <AuthProvider>
+      {/* Tu estructura de navegación actual, barra lateral, etc. */}
+    </AuthProvider>
+  );
   return (
     <ThemeProvider theme={industrialTheme}>
       <CssBaseline />
