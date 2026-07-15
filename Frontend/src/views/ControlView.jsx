@@ -2,8 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { Box, Card, CardContent, Typography, FormControl, InputLabel, Select, MenuItem, Switch, FormControlLabel, Button, Alert, Divider, CircularProgress, Grid } from '@mui/material';
 import { Save, AlertTriangle, ShieldAlert } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
-import { useAuth } from '../context/AuthContext'; // 1. Importar autenticación
-import { supabase } from '../supabaseClient';
+import { useAuth } from '../context/AuthContext'; 
+
+// 1. El cliente real de Supabase (desde la raíz de src)
+import { supabase } from "../supabaseClient"; 
+
+// 2. Las etiquetas (desde la carpeta de servicios)
 import { ESPECIE_LABEL, FASE_LABEL } from '../services/supabaseService';
 
 export const ControlView = () => {
