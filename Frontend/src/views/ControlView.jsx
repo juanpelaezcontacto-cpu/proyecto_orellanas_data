@@ -4,21 +4,34 @@ import { Save, AlertTriangle, ShieldAlert, RefreshCw } from 'lucide-react';
 import { useTelemetry } from '../context/TelemetryContext';
 import { useAuth } from '../context/AuthContext'; 
 import { supabase } from "../supabaseClient"; 
-import { ESPECIE_LABEL, FASE_LABEL } from '../services/supabaseService';
-import { LoginView } from './LoginView'; // Integración de seguridad directa
+import { ESPECIE_LABEL as IMPORTED_ESPECIE, FASE_LABEL as IMPORTED_FASE } from '../services/supabaseService';
+import { LoginView } from './LoginView'; 
+
+// Fallbacks locales seguros para prevenir caídas de la app (TypeError) si el servicio falla
+const ESPECIE_LABEL = IMPORTED_ESPECIE || { 0: 'Pleurotus ostreatus (Orellana)', 1: 'Hericium erinaceus (Melena de León)' };
+const FASE_LABEL = IMPORTED_FASE || { 0: 'Incubación', 1: 'Fructificación' };
 
 export const ControlView = () => {
   const { controlState, refetch } = useTelemetry();
   const { role, user } = useAuth(); 
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState(null);
-  const [isInitialized, setIsInitialized] = useState(false);
+  const [hasLoadedFromTelemetry, setHasLoadedFromTelemetry] = useState(false);
+
+  // Inicialización inmediata con valores seguros por defecto (Evita que la pantalla se quede colgada)
+  const [form, setForm] = useState({
+    especie: 0,
+    fase: 1,
+    set_compresor: 1,
+    permiso_nube_humidificador: 1,
+    permiso_nube_co2: 1,
+    permiso_nube_luz: 1,
+  });
 
   const hasWritePermission = user && (role === 'operator' || role === 'admin');
 
-  // Inicialización controlada (Previene que la telemetría en tiempo real borre lo que digita el operario)
+  // Carga controlada desde la base de datos (Solo sobreescribe los inputs al recibir telemetría por primera vez)
   useEffect(() => {
-    if (controlState && !isInitialized) {
+    if (controlState && !hasLoadedFromTelemetry) {
       setForm({
         especie: controlState.especie ?? 0,
         fase: controlState.fase ?? 1,
@@ -27,12 +40,19 @@ export const ControlView = () => {
         permiso_nube_co2: controlState.permiso_nube_co2 ?? 1,
         permiso_nube_luz: controlState.permiso_nube_luz ?? 1,
       });
-      setIsInitialized(true);
+      setHasLoadedFromTelemetry(true);
     }
-  }, [controlState, isInitialized]);
+  }, [controlState, hasLoadedFromTelemetry]);
 
-  const handleSyncWithHardware = () => {
-    setIsInitialized(false); // Fuerza recarga del estado actual de la BD
+  const handleSyncWithHardware = async () => {
+    setHasLoadedFromTelemetry(false); // Permite al useEffect volver a escuchar y capturar los datos frescos de la BD
+    if (refetch) {
+      try {
+        await refetch();
+      } catch (err) {
+        console.error("Error de sincronización manual:", err);
+      }
+    }
   };
 
   if (!user) {
@@ -42,14 +62,6 @@ export const ControlView = () => {
           <strong>ACCESO RESTRINGIDO:</strong> Se requiere autenticación de operador para inyectar consignas de control físico en el hardware.
         </Alert>
         <LoginView />
-      </Box>
-    );
-  }
-
-  if (!form) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-        <CircularProgress />
       </Box>
     );
   }
@@ -77,7 +89,10 @@ export const ControlView = () => {
         .eq('id', 1);
 
       if (error) throw error;
-      await refetch();
+      
+      if (refetch) {
+        await refetch();
+      }
       alert('Parámetros de control real inyectados a Supabase con éxito.');
     } catch (err) {
       console.error(err);
