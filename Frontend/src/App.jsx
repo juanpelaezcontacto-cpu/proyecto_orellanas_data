@@ -13,6 +13,11 @@ import { ControlView } from './views/ControlView';
 import { DiagnosticoView } from './views/DiagnosticoView';
 
 function App() {
+  return (
+    <AuthProvider>
+      {/* Tu estructura de navegación actual, barra lateral, etc. */}
+    </AuthProvider>
+  );
   const [activeTab, setActiveTab] = useState('dashboard');
 
   const renderView = () => {
@@ -31,11 +36,7 @@ function App() {
         return <DashboardView />;
     }
   };
-  return (
-    <AuthProvider>
-      {/* Tu estructura de navegación actual, barra lateral, etc. */}
-    </AuthProvider>
-  );
+  
   return (
     <ThemeProvider theme={industrialTheme}>
       <CssBaseline />
