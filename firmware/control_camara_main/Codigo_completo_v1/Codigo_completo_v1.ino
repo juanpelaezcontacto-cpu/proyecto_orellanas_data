@@ -407,7 +407,7 @@ void setup() {
   int intentos_sht = 0;
   const int max_intentos_sht = 10;
 
-  while (!sht_int.begin(Wire1, 0x44, SCL_S, SDA_S && intentos_sht < max_intentos_sht)) {
+  while (!sht_int.begin(Wire1, 0x44, SCL_S, SDA_S) && intentos_sht < max_intentos_sht) {
     intentos_sht++; 
     Serial.printf("Intento %d: Error inicializando SHT interior...\n", intentos_sht);
     estado_sht_int = false;
@@ -520,7 +520,7 @@ void controlarTemperaturaCultivo() {
   }
 
   if (temp_interior_promedio >= limite_superior && estado_compresor == 0) {
-    if (permiso_nube_compresor && compresor_disponible && temp_comp <= TEMP_MAX_COMPRESOR) { 
+    if (permiso_nube_compresor && compresor_disponible) {  //condicion eliminada porque sensor max con problemas: && temp_comp <= TEMP_MAX_COMPRESOR 
       estado_compresor = 1;
       digitalWrite(compresor, HIGH); 
       Serial.println("❄️ Compresor encendido.");
@@ -534,8 +534,8 @@ void controlarTemperaturaCultivo() {
     tiempo_cambio_ventiladores = millis(); 
     Serial.println("💤 Compresor cortado.");
   }
-
-  if (estado_compresor ==1 && err_max == 0 && temp_comp > TEMP_MAX_COMPRESOR){
+  // Bloque desactivado por problemas de funcionamiento con sensor temperatura compresor MAX
+  /*if (estado_compresor ==1 && err_max == 0 && temp_comp > TEMP_MAX_COMPRESOR){
     digitalWrite(compresor, LOW);
     estado_compresor = 0;
     tiempo_ultimo_apagado = millis();
@@ -545,7 +545,7 @@ void controlarTemperaturaCultivo() {
       temp_comp,
       TEMP_MAX_COMPRESOR
     );
-  }
+  }*/
 }
 
 // ================= Control local de humedad =================
@@ -786,32 +786,50 @@ void leersensores(){
   if (codigoFalla != 0) {
     thermo.clearFault();
     delay(5); 
-    codigoFalla = thermo.readFault();
+    //codigoFalla = thermo.readFault();
     err_max = 1; 
   }else { 
     err_max = 0; 
     temp_comp = thermo.temperature(RNOMINAL, RREF); 
   }
 
-
-  // Puerta
+// 5. LECTURA PUERTA
   estado_Puerta = !digitalRead(Puerta); 
+// 6. LECTURA DEFENSIVA DEL PZEM (VARIABLES GLOBALES ACTUALIZADAS DIRECTAMENTE)
+  const int max_intentos = 3;
+  float v_temporal = NAN;
 
-  // PZEM (Corrección del Bug del isnan)
-  float v_tmp  = pzem.voltage();
-  float c_tmp  = pzem.current() / 3.0; 
-  float p_tmp  = pzem.power() / 3.0;
-  float e_tmp  = pzem.energy() / 3.0;
-  float f_tmp  = pzem.frequency();
-  float pf_tmp = pzem.pf();
-
-  if (isnan(v_tmp) || isnan(c_tmp) || isnan(p_tmp) || isnan(e_tmp) || isnan(f_tmp) || isnan(pf_tmp)) {
-    err_pzem = 1;
-    pzem_voltaje = 0.0; pzem_corriente = 0.0; pzem_potencia = 0.0; pzem_energia = 0.0; pzem_frecuencia = 0.0; pzem_pf = 0.0;
-  } else {
-    err_pzem = 0;
-    pzem_voltaje = v_tmp; pzem_corriente = c_tmp; pzem_potencia = p_tmp; pzem_energia = e_tmp; pzem_frecuencia = f_tmp; pzem_pf = pf_tmp;
+  for ( int intento = 1; intento <= max_intentos; intento++){
+    v_temporal = pzem.voltage();
+    if (!isnan(v_temporal)){
+      // PZEM (Corrección del Bug del isnan)
+      pzem_voltaje = v_temporal;                                  //
+      pzem_corriente = pzem.current()/3.0;                  // 
+      pzem_potencia = pzem.power()/3.0;                        // 
+      pzem_energia = pzem.energy()/3.0;                      // 
+      pzem_frecuencia = pzem.frequency();                 //
+      pzem_pf = pzem.pf();                      //
+      err_pzem = 0;                          // Indica éxito al sistema
+      return;                                // Salimos de la función inmediatamente
+    }
+    if (intento < max_intentos){
+      delay(50);
+    }
   }
+  // --- CONTROL DE FALLO TOTAL ---
+  // Si se agotan los 3 intentos sin éxito, el sensor se considera desconectado o sin energía AC
+  err_pzem = 1;                              //Activa la alarma visual/nube
+  // Limpiamos las variables instantáneas para no registrar basura en Supabase
+  pzem_voltaje = 0.0;                             //
+  pzem_corriente = 0.0;                      //
+  pzem_potencia = 0.0;                          //
+  pzem_frecuencia = 0.0;                       //
+  pzem_pf = 0.0;                     //
+  
+  // NOTA: No modificamos "energia_kwh" para mantener intacto el acumulador histórico 
+  // en la memoria flash del sensor mientras se soluciona la desconexión.
+  
+  Serial.println("⚠️ [PZEM] Fallo crítico: 3 intentos de lectura fallidos debido a ruido o falta de alimentación AC.");
 }
 
 bool enviarRafagaANube() {
