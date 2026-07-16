@@ -76,7 +76,7 @@ float temp_ext = 0.0;          // SHT Exterior
 float hum_ext = 0.0;          
 float temp_int_sup = 0.0;          // SHT Interior Superior 
 float hum_int_sup = 0.0;          
-float t_inf = 0.0;       // SCD40 o Inferior 
+float temp_int_inf = 0.0;       // SCD40 o Inferior 
 float h_inf = 0.0;       
 uint16_t co2 = 0;        
 float resistencia = 0.0; 
@@ -205,7 +205,7 @@ const uint16_t CO2_BANDA_PROPORCIONAL = 400; // ppm sobre el máximo para llegar
 const int HORA_LUZ_ON  = 6;   // 06:00 — VALOR DE PARTIDA, confirmar fotoperiodo deseado
 const int HORA_LUZ_OFF = 18;  // 18:00
 const int PWM_LUZ_FRUCTIFICACION = 150; // intensidad baja-media SIN calibrar con luxómetro real
-const float UMBRAL_CORRIENTE_LUZ_A = 0.05; // Amperios mínimos esperados con la luz encendida — CALIBRAR con el consumo real del driver/foco
+//const float UMBRAL_CORRIENTE_LUZ_A = 0.00; // Amperios mínimos esperados con la luz encendida — CALIBRAR con el consumo real del driver/foco
 
 bool luz_fotoperiodo_on = false; // si el fotoperiodo indica que debería estar encendida ahora
 bool err_luz = false;            // falla de actuador detectada por PZEM (no falla de sensor de luz, no existe)
@@ -429,10 +429,26 @@ void actualizarCicloCompresor() {
   }
 }
 
-void calcularTemperaturaAmbiente(float temp_int_sup, float t_inf) {
-  float t_instantanea = (temp_int_sup + t_inf) / 2.0; 
-  lecturas_historicas_temp[indice_lectura_temp] = t_instantanea;
-  indice_lectura_temp = (indice_lectura_temp + 1) % MAX_MUESTRAS_TEMP; 
+void calcularTemperaturaAmbiente(float temp_int_sup, float temp_int_inf) {
+  float t_instantanea = 0.0;
+  bool calculo_valido = false;
+
+  if (err_sht_int == 0 && err_scd == 0){
+    t_instantanea = (temp_int_sup + temp_int_inf) / 2.0; 
+    calculo_valido = true;
+  }else if(err_sht_int == 0){
+    t_instantanea = temp_int_sup;
+    calculo_valido = true;
+  }else if(err_scd == 0){
+    t_instantanea = temp_int_inf;
+    calculo_valido = true;
+  }
+
+  if (calculo_valido){
+    lecturas_historicas_temp[indice_lectura_temp] = t_instantanea;
+    indice_lectura_temp = (indice_lectura_temp + 1) % MAX_MUESTRAS_TEMP; 
+  }
+  
   
   float suma = 0.0;
   for (int i = 0; i < MAX_MUESTRAS_TEMP; i++) {
@@ -444,6 +460,15 @@ void calcularTemperaturaAmbiente(float temp_int_sup, float t_inf) {
 void controlarTemperaturaCultivo() {
   float limite_superior = setpoint_temp + HISTERESIS;             
   float limite_inferior_anticipado = setpoint_temp + ANTICIPACION_CORTE; 
+
+  if (err_sht_int != 0 && err_scd != 0) {
+    if (estado_compresor == 1) {
+      digitalWrite(compresor, LOW);
+      estado_compresor = 0;
+      Serial.println("🚨 EMERGENCIA: Sensor SHT o SCD offline. Compresor apagado por seguridad.");
+    }
+    return; // Sale de la función, no permite encenderlo
+  }
 
   if (temp_interior_promedio >= limite_superior && estado_compresor == 0) {
     if (permiso_nube_compresor && compresor_disponible && temp_comp <= TEMP_MAX_COMPRESOR) { 
@@ -585,7 +610,7 @@ void gestionarFotoperiodo() {
   // Incubación: oscuridad total, la luz puede inducir primordios prematuros.
   if (fase_actual == INCUBACION) {
     luz_fotoperiodo_on = false;
-    err_luz = false;
+    //err_luz = false;
     pwm_luz = 0;
     ledcWrite(luz, pwm_luz);
     return;
@@ -608,13 +633,13 @@ void gestionarFotoperiodo() {
   // si debería estar encendida y el PZEM no ve el consumo esperado, marca
   // err_luz. Si el PZEM mismo está fallando (err_pzem), no confiamos en la
   // lectura de corriente y no tocamos err_luz.
-  if (deberia_estar_encendida && permiso_nube_luz) {
+  /*if (deberia_estar_encendida && permiso_nube_luz) {
     if (err_pzem == 0) {
       err_luz = (pzem_corriente < UMBRAL_CORRIENTE_LUZ_A);
     }
   } else {
     err_luz = false;
-  }
+  }*/
 }
 
 // Resincronización periódica de NTP (el RTC interno del ESP32 puede desviarse
@@ -684,7 +709,7 @@ void leersensores(){
     bool dataReady = false;
     scd.getDataReadyStatus(dataReady); 
     if (dataReady) {
-      scd.readMeasurement(co2, t_inf, h_inf);
+      scd.readMeasurement(co2, temp_int_inf, h_inf);
       if ( err_scd != 0){
         Serial.println("✅ SCD40 volvió a entregar datos.");
       }
@@ -939,7 +964,7 @@ void loop() {
     leersensores(); 
     // 2. FILTRO TÉRMICO: Corregido dentro del bloque de muestreo
     if (err_sht_int == 0 && err_scd == 0) { 
-      calcularTemperaturaAmbiente(temp_int_sup, t_inf);
+      calcularTemperaturaAmbiente(temp_int_sup, temp_int_inf);
     }
     // 1.2 Capturar el Timestamp Unix real (o 0 si no hay sincronización)
     bufferCultivo[indiceEscritura].timestamp = hora_sincronizada ? (uint32_t)time(NULL) : 0;
@@ -955,7 +980,7 @@ void loop() {
     bufferCultivo[indiceEscritura].temp_int_sup = temp_int_sup; 
     bufferCultivo[indiceEscritura].hum_int_sup  = hum_int_sup;
     bufferCultivo[indiceEscritura].co2_inf      = co2; 
-    bufferCultivo[indiceEscritura].temp_int_inf = t_inf;
+    bufferCultivo[indiceEscritura].temp_int_inf = temp_int_inf;
     bufferCultivo[indiceEscritura].hum_int_inf  = h_inf;
     bufferCultivo[indiceEscritura].resistencia  = resistencia;
     bufferCultivo[indiceEscritura].puerta       = estado_Puerta;
