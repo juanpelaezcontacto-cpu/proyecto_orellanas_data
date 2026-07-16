@@ -88,6 +88,8 @@ def construir_respuesta_control(control: dict, status: str = "success") -> dict:
         "modo_co2": _modo_a_int(control.get("modo_co2")),
         "modo_luz": _modo_a_int(control.get("modo_luz")),
         "compresor_directo": 1 if control.get("compresor_directo") else 0,
+        "version_nube": control.get("version_nube", "1.1.0"), 
+        "url_update": control.get("url_update", "")
     }
 
     especie_val = control.get("especie")
@@ -109,7 +111,7 @@ VALORES_FALLBACK_CONTROL = construir_respuesta_control({
     "permiso_nube_luz": True,
     "hum_setpoint_min": 88.0,
     "hum_setpoint_max": 95.0,
-    "co2_setpoint_max": 900,
+    "co2_setpoint_max": 1000,
     "hora_luz_on": 6,
     "hora_luz_off": 18,
     "set_humidificador": False,
@@ -119,6 +121,8 @@ VALORES_FALLBACK_CONTROL = construir_respuesta_control({
     "modo_co2": "auto",
     "modo_luz": "auto",
     "compresor_directo": False,
+    "version_nube": "1.1.0", 
+    "url_update": ""
 }, status="fallback")
 
 

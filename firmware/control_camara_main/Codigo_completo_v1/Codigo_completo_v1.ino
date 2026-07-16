@@ -8,12 +8,14 @@
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h> // Obligatorio para HTTPS seguro
+#include <HTTPUpdate.h> // <-- NUEVA BIBLIOTECA PARA OTA Over the Air
 #include <Preferences.h>
 #include <time.h> // Requerido para NTP (configTime/getLocalTime) - fotoperiodo real
 
 Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
+const String VERSION_ACTUAL = "1.1.0"; // <-- TU VERSIÓN ACTUAL (Incrementar en cada compilación)
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
 const char* password = "macp092021";
@@ -257,6 +259,53 @@ cEaU/wvU6BUNMtcVquVGHp7itQeDth5j+XL3j4WJ2SABwzUl6OeYdgpIt/ITZa+p
 TT0mQ/r5XyA4MEAiabn7XJjvCERlF2dcn2wqJw+CreTkkQ2R
 -----END CERTIFICATE-----
 )EOF";
+
+void ejecutarActualizacionOTA(String url_binario) {
+  Serial.println("\n🚨 [OTA] Iniciando actualización de firmware...");
+  Serial.println("🚨 [OTA] Forzando apagado de actuadores por seguridad...");
+
+  // 1. Apagar compresor y humidificador inmediatamente
+  digitalWrite(compresor, LOW);
+  estado_compresor = 0;
+  digitalWrite(humidificador, LOW);
+  estado_humidificador = 0;
+
+  // 2. Apagar todos los ventiladores y luces (PWM a 0)
+  ledcWrite(vent_lateral, 0);
+  ledcWrite(vent_superior, 0);
+  ledcWrite(vent_co2, 0);
+  ledcWrite(luz, 0);
+  ledcWrite(aux, 0);
+
+  delay(1000); // Esperar a que los relés y cargas se desmagneticen
+
+  // 3. Preparar el cliente seguro para descargar el archivo
+  WiFiClientSecure cliente_ota;
+  cliente_ota.setCACert(ROOT_CA); // Reutiliza tu certificado de confianza para descargas seguras
+  
+  // Configuramos el reinicio automático tras la descarga exitosa
+  httpUpdate.rebootOnUpdate(true);
+
+  Serial.printf("📥 [OTA] Descargando binario desde: %s\n", url_binario.c_str());
+  
+  // 4. Iniciar la actualización
+  t_httpUpdate_return resultado = httpUpdate.update(cliente_ota, url_binario);
+
+  // Si la función continúa después de update(), significa que el proceso falló
+  switch (resultado) {
+    case HTTP_UPDATE_FAILED:
+      Serial.printf("❌ [OTA] Falló la actualización. Error (%d): %s\n", 
+                    httpUpdate.getLastError(), 
+                    httpUpdate.getLastErrorString().c_str());
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("ℹ️ [OTA] No se encontraron actualizaciones en el servidor.");
+      break;
+    case HTTP_UPDATE_OK:
+      Serial.println("✅ [OTA] Actualización completada correctamente.");
+      break;
+  }
+}
 
 void setup() {
   prefs.begin("orellanas", false);
@@ -910,8 +959,26 @@ bool enviarRafagaANube() {
                 }
               }
 
-              exito = true;
-              batchID++;
+              if (docRespuesta.containsKey("version_nube") && docRespuesta.containsKey("url_update")) {
+                String version_nube = docRespuesta["version_nube"].as<String>();
+                String url_update = docRespuesta["url_update"].as<String>();
+
+                if (version_nube != VERSION_ACTUAL && url_update.length() > 0) {
+                  Serial.printf("\n🆕 [OTA] ¡Nueva versión de firmware detectada en la nube!\n");
+                  Serial.printf("   -> Versión Local: %s\n", VERSION_ACTUAL.c_str());
+                  Serial.printf("   -> Versión Nube:  %s\n", version_nube.c_str());
+                  
+                  // Detenemos la comunicación http antes de iniciar el flasheo para liberar recursos de red
+                  http.end();
+                  
+                  // Ejecutar proceso de actualización segura Esto reiniciará el ESP32 si tiene éxito
+                  ejecutarActualizacionOTA(url_update);
+                  return true; // Salida rápida
+                }
+              }
+
+              exito = true; 
+              batchID++; 
               prefs.putUInt("batch_id", batchID);
               // 🛠️ AJUSTE CRÍTICO: Reiniciar el índice para el próximo lote limpio
               indiceEscritura = 0;
