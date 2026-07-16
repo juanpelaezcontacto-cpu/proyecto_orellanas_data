@@ -59,7 +59,7 @@ export function DashboardView() {
     return { co2Stress, humSwitches, compSwitches, tempGrad, humGrad };
   }, [historicalData, latestReading]);
 
-  // 3. Sistema de alarmas en tiempo real
+  // 3. Sistema de alarmas en tiempo reals
   const activeAlarms = useMemo(() => {
     if (!latestReading) return [];
     const alarms = [];

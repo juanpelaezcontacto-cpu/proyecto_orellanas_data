@@ -141,7 +141,7 @@ export function TelemetryProvider({ children }) {
 
   // Análisis derivado de las últimas 20 muestras — mismo criterio que ya usa
   // DashboardView internamente, pero expuesto aquí para que DiagnosticoView
-  // (y cualquier otra vista) no tenga que recalcularlo por su cuenta.
+  // (y cualquier otra vista) no tenga que recalcularlo por su cuenta.fd
   const analysis = useMemo(() => {
     if (!historicalData || historicalData.length === 0) {
       return { cycles: { humidificador: 0, compresor: 0 } };

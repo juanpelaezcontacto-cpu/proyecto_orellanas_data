@@ -61,7 +61,7 @@ export const ClimaView = () => {
         </ToggleButtonGroup>
       </Box>
 
-      {/* GRADIENTE DE TEMPERATURA */}
+      {/* GRADIENTE DE TEMPERATURAr */}
       <Card sx={{ mb: 3 }}>
         <CardContent>
           <Typography variant="h6" sx={{ mb: 2, display: 'flex', alignItems: 'center', gap: 1, fontSize: '1rem', fontWeight: 'bold' }}>
