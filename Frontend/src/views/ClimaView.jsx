@@ -79,8 +79,8 @@ export const ClimaView = () => {
                 {latestReading.setpoint_temp != null && (
                   <ReferenceLine yAxisId="temp" y={latestReading.setpoint_temp} stroke="#3b82f6" strokeDasharray="5 5" label={{ value: `Límite: ${latestReading.setpoint_temp}°C`, fill: '#3b82f6', fontSize: 10, position: 'insideTopLeft' }} />
                 )}
-                <Line yAxisId="temp" type="monotone" dataKey="temp_inf" name="Temp Inferior (Control)" stroke="#ef4444" strokeWidth={2} dot={false} />
-                <Line yAxisId="temp" type="monotone" dataKey="temp_sup" name="Temp Superior (Estrato)" stroke="#ed8936" strokeWidth={1.5} dot={false} />
+                <Line yAxisId="temp" type="monotone" dataKey="temp_int_inf" name="Temp Inferior (Control)" stroke="#ef4444" strokeWidth={2} dot={false} />
+                <Line yAxisId="temp" type="monotone" dataKey="temp_int_sup" name="Temp Superior (Estrato)" stroke="#ed8936" strokeWidth={1.5} dot={false} />
                 <Bar yAxisId="gradient" dataKey={(d) => (d.temp_int_sup != null && d.temp_int_inf != null) ? d.temp_int_sup - d.temp_int_inf : null} name="Gradiente ΔT (Sup - Inf)" fill="#3b82f6" opacity={0.2} />
               </ComposedChart>
             </ResponsiveContainer>

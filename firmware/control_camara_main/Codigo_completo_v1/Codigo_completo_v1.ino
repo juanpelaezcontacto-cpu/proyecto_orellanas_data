@@ -274,7 +274,9 @@ void setup() {
   
   Wire.begin(SDA_P, SCL_P, 100000);  
   Wire.setTimeOut(25);      
+  delay(500); // Dar tiempo a que el sensor encienda
   Wire1.begin(SDA_S, SCL_S, 100000);      
+  delay(100); // Pequeña pausa antes de hablar con el sensor
 
   WiFi.begin(ssid, password);
   unsigned long wifi_start_time = millis();
@@ -333,7 +335,7 @@ void setup() {
   }else{
     estado_sht_ext = true;
     sht_ext.setPrecision(REPEATABILITY_HIGH);
-    Serial.println("SHT exterior inicializado"); 
+    Serial.println("SHT exterior en Canal de Comunicación I2C principal inicializado"); 
   }
 // SCD interior
   scd.begin(Wire, 0x62); // Inicialización (retorna void, no genera error de compilación)
@@ -353,14 +355,26 @@ void setup() {
 // Sensores Canal de Comunicación I2C secundario
 //============================================
 // SHT interior
-  if (!sht_int.begin(Wire1, 0x44, SCL_S, SDA_S)) { 
+  int intentos_sht = 0;
+  const int max_intentos_sht = 10;
+
+  while (!sht_int.begin(Wire1, 0x44, SCL_S, SDA_S && intentos_sht < max_intentos_sht)) {
+    intentos_sht++; 
+    Serial.printf("Intento %d: Error inicializando SHT interior...\n", intentos_sht);
     estado_sht_int = false;
-    Serial.println("Error al inicializar el SHT interior"); 
-  }else{
+    delay(500);
+  }
+
+  if (intentos_sht < max_intentos_sht){
     estado_sht_int = true;
     sht_int.setPrecision(REPEATABILITY_HIGH);
     Serial.println("SHT interior en Canal de Comunicación I2C secundario inicializado"); 
+  }else{
+    estado_sht_int = false;
+    Serial.println("Error crítico: SHT interior no responde. Continuando sin él.");
   }
+
+  
 //***********************************************************
   if (estado_sht_int){
     sht_int.readTemperatureHumidity(t0_int_sup, hum_int_sup);
