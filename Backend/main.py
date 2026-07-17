@@ -12,12 +12,21 @@ from fastapi.responses import JSONResponse, StreamingResponse  # 🛠️ Agregad
 from typing import Optional, List
 import asyncio
 import httpx  # 🛠️ Requisito para el proxy seguro
+from fastapi.middleware.cors import CORSMiddleware  # 🔌 
 
 # Inicializar la aplicación web
 app = FastAPI(
     title="API de Telemetría - Sistema Orellanas",
     description="Gateway HTTP para el monitoreo automatizado de hongos Orellanas",
     version="1.0.0"
+
+    # 🔌 CONFIGURACIÓN DE CORS PARA EL FRONTEND
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Si usas un dominio específico, cámbialo por ["https://tu-frontend.com"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 1. Cargar variables de entorno ocultas
@@ -317,11 +326,6 @@ async def recibir_datos(data: PaqueteRafaga):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# =====================================================================
-# 🛠️ NUEVO ENDPOINT: PROXY DE DESCARGA SEGURO PARA FIRMWARE (OTA)
-# =====================================================================
-
-@app.get("/telemetria/firmware/download", dependencies=[Depends(verificar_api_key)])
 # =====================================================================
 # 🛠️ NUEVO ENDPOINT: PROXY DE DESCARGA SEGURO PARA FIRMWARE (OTA)
 # =====================================================================
