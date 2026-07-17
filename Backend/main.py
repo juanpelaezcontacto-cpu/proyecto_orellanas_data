@@ -19,8 +19,9 @@ app = FastAPI(
     title="API de Telemetría - Sistema Orellanas",
     description="Gateway HTTP para el monitoreo automatizado de hongos Orellanas",
     version="1.0.0"
+)
 
-    # 🔌 CONFIGURACIÓN DE CORS PARA EL FRONTEND
+# 🔌 CONFIGURACIÓN DE CORS PARA EL FRONTEND
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Si usas un dominio específico, cámbialo por ["https://tu-frontend.com"]
