@@ -88,19 +88,15 @@ def construir_respuesta_control(control: dict, status: str = "success", version_
         "compresor_directo": 1 if control.get("compresor_directo") else 0
     }
 
+    version_nube = control.get("version_nube", "1.1.0")
     ota_disponible = control.get("ota_disponible", True)
     
-    if ota_disponible:
-        respuesta["version_nube"] = control.get("version_nube") or version_actual or "1.1.0"        
+    # Si la bandera está activa O si detectamos que el chip tiene una versión vieja, enviamos los datos
+    if ota_disponible or (version_actual and version_actual != version_nube):
+        respuesta["version_nube"] = version_nube        
         respuesta["url_update"] = control.get("url_update", "")
     else:
-        print(f"🛑 [VETO OTA] Parámetros omitidos en el payload. Dispositivo penalizado en DB.")
-
-    especie_val = control.get("especie")
-    fase_val = control.get("fase")
-    if especie_val is not None and fase_val is not None:
-        respuesta["especie"] = especie_val
-        respuesta["fase"] = fase_val
+        print(f"🛑 [OTA] Dispositivo al día o congelado administrativamente.")
 
     return respuesta
 
@@ -301,21 +297,9 @@ async def recibir_datos(data: PaqueteRafaga):
                 print(f"❌ Error registrando batch como procesado: {e_reg}")
         
         if data.err_ota and data.err_ota != 0:
-            print(f"🚨 [REPORTE FALLO OTA] ESP32 reportó error {data.err_ota}. Penalizando en base de datos...")
-            try:
-                await asyncio.to_thread(
-                    supabase.table("controles")
-                    .update({
-                        "ota_error_code": data.err_ota,
-                        "ota_disponible": False
-                    })
-                    .eq("id", 1)
-                    .execute
-                )
-                print("✅ Tabla 'controles' actualizada: ota_disponible=False.")
-            except Exception as e_ota_db:
-                print(f"❌ Error al intentar penalizar la OTA en la base de datos: {e_ota_db}")
-
+            # Solo registra en el log del servidor, NO toques la base de datos
+            print(f"⚠️ [AVISO OTA DEVICE] El ESP32 reportó código de estado anterior: {data.err_ota}")
+        
         try:
             res_control = await asyncio.to_thread(supabase.table("controles").select("*").eq("id", 1).execute)
             if res_control.data and len(res_control.data) > 0:
@@ -333,6 +317,11 @@ async def recibir_datos(data: PaqueteRafaga):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# =====================================================================
+# 🛠️ NUEVO ENDPOINT: PROXY DE DESCARGA SEGURO PARA FIRMWARE (OTA)
+# =====================================================================
+
+@app.get("/telemetria/firmware/download", dependencies=[Depends(verificar_api_key)])
 # =====================================================================
 # 🛠️ NUEVO ENDPOINT: PROXY DE DESCARGA SEGURO PARA FIRMWARE (OTA)
 # =====================================================================
@@ -356,7 +345,7 @@ async def descargar_firmware_proxy():
 
         print(f"🔒 [PROXY SEGURO] Descargando binario de origen: {url_supabase_storage}")
 
-        # 2. Descargar el archivo completo a la RAM del servidor (Consumo de ~1.2MB temporal)
+        # 2. Descargar el archivo completo a la RAM del servidor
         async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as cliente_red:
             respuesta_s3 = await cliente_red.get(url_supabase_storage)
             
@@ -374,7 +363,7 @@ async def descargar_firmware_proxy():
             media_type="application/octet-stream",
             headers={
                 "Content-Disposition": "attachment; filename=update.bin",
-                "Content-Length": str(tamanio_bytes)  # 🛠️ LA CLAVE: El tamaño exacto requerido por el ESP32
+                "Content-Length": str(tamanio_bytes)  # Evita el Transfer-Encoding: chunked
             }
         )
 
@@ -383,48 +372,6 @@ async def descargar_firmware_proxy():
     except Exception as error_general:
         print(f"❌ Error catastrófico en el proxy de descarga: {error_general}")
         raise HTTPException(status_code=500, detail=f"Fallo del proxy: {str(error_general)}")
-    """
-    Descarga el binario desde el bucket privado/público de Supabase de manera interna 
-    siguiendo las redirecciones a AWS S3 de forma transparente, y transmite los bytes 
-    directamente al ESP32 sin cargar el archivo completo en la RAM de Railway.
-    """
-    try:
-        # 1. Recuperar la URL configurada en Supabase
-        res_control = await asyncio.to_thread(supabase.table("controles").select("url_update").eq("id", 1).execute)
-        if not res_control.data or len(res_control.data) == 0:
-            raise HTTPException(status_code=404, detail="Configuración no encontrada en la base de datos")
-        
-        url_supabase_storage = res_control.data[0].get("url_update")
-        if not url_supabase_storage or url_supabase_storage.strip() == "":
-            raise HTTPException(status_code=400, detail="No hay una URL de actualización válida configurada")
-
-        print(f"🔒 [PROXY] Canalizando descarga segura desde: {url_supabase_storage}")
-
-        # 2. Generador asíncrono para leer el archivo por chunks (trozos de 4KB)
-        async def proveedor_de_bytes():
-            # Con el parámetro follow_redirects=True, httpx resuelve internamente el salto 302 hacia Amazon S3
-            async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as cliente_red:
-                async with cliente_red.stream("GET", url_supabase_storage) as respuesta_s3:
-                    if respuesta_s3.status_code != 200:
-                        print(f"❌ Proxy falló. S3/Supabase devolvió código HTTP: {respuesta_s3.status_code}")
-                        raise HTTPException(status_code=respuesta_s3.status_code, detail="Error en almacenamiento de origen")
-                    
-                    async for fragmento_bytes in respuesta_s3.iter_bytes(chunk_size=4096):
-                        yield fragmento_bytes
-
-        # 3. Responder con un flujo binario continuo directo al socket del ESP32
-        return StreamingResponse(
-            proveedor_de_bytes(), 
-            media_type="application/octet-stream",
-            headers={"Content-Disposition": "attachment; filename=update.bin"}
-        )
-
-    except HTTPException as error_http:
-        raise error_http
-    except Exception as error_general:
-        print(f"❌ Error catastrófico en el proxy de descarga: {error_general}")
-        raise HTTPException(status_code=500, detail=f"Fallo del proxy: {str(error_general)}")
-
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
