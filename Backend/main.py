@@ -5,7 +5,7 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Response
 from pydantic import BaseModel
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, StreamingResponse  # 🛠️ Agregado StreamingResponse
@@ -336,8 +336,53 @@ async def recibir_datos(data: PaqueteRafaga):
 # =====================================================================
 # 🛠️ NUEVO ENDPOINT: PROXY DE DESCARGA SEGURO PARA FIRMWARE (OTA)
 # =====================================================================
+
 @app.get("/telemetria/firmware/download", dependencies=[Depends(verificar_api_key)])
 async def descargar_firmware_proxy():
+    """
+    Descarga el binario completo desde Supabase/S3 a la RAM del backend de forma efímera
+    y se lo entrega al ESP32 con la cabecera Content-Length explícita, eliminando
+    el Transfer-Encoding: chunked que hace fallar al microcontrolador.
+    """
+    try:
+        # 1. Recuperar la URL configurada en Supabase
+        res_control = await asyncio.to_thread(supabase.table("controles").select("url_update").eq("id", 1).execute)
+        if not res_control.data or len(res_control.data) == 0:
+            raise HTTPException(status_code=404, detail="Configuración no encontrada en la base de datos")
+        
+        url_supabase_storage = res_control.data[0].get("url_update")
+        if not url_supabase_storage or url_supabase_storage.strip() == "":
+            raise HTTPException(status_code=400, detail="No hay una URL de actualización válida configurada")
+
+        print(f"🔒 [PROXY SEGURO] Descargando binario de origen: {url_supabase_storage}")
+
+        # 2. Descargar el archivo completo a la RAM del servidor (Consumo de ~1.2MB temporal)
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as cliente_red:
+            respuesta_s3 = await cliente_red.get(url_supabase_storage)
+            
+            if respuesta_s3.status_code != 200:
+                print(f"❌ Proxy falló. S3/Supabase devolvió código HTTP: {respuesta_s3.status_code}")
+                raise HTTPException(status_code=respuesta_s3.status_code, detail="Error en almacenamiento de origen")
+        
+        binary_data = respuesta_s3.content
+        tamanio_bytes = len(binary_data)
+        print(f"✅ [PROXY SEGURO] Archivo listo para transferencia. Tamaño: {tamanio_bytes} bytes.")
+
+        # 3. Retornar una respuesta HTTP plana con el tamaño explícito en los Headers
+        return Response(
+            content=binary_data,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": "attachment; filename=update.bin",
+                "Content-Length": str(tamanio_bytes)  # 🛠️ LA CLAVE: El tamaño exacto requerido por el ESP32
+            }
+        )
+
+    except HTTPException as error_http:
+        raise error_http
+    except Exception as error_general:
+        print(f"❌ Error catastrófico en el proxy de descarga: {error_general}")
+        raise HTTPException(status_code=500, detail=f"Fallo del proxy: {str(error_general)}")
     """
     Descarga el binario desde el bucket privado/público de Supabase de manera interna 
     siguiendo las redirecciones a AWS S3 de forma transparente, y transmite los bytes 
