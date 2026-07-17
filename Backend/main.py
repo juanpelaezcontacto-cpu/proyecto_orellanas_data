@@ -61,7 +61,7 @@ def _modo_a_int(valor) -> int:
     return 1 if valor else 0
 
 
-def construir_respuesta_control(control: dict, status: str = "success") -> dict:
+def construir_respuesta_control(control: dict, status: str = "success", version_actual: Optional[str] = None) -> dict:
     """
     Arma la respuesta JSON de controles que consume el ESP32.
     Mantiene compatibilidad con los campos existentes en main.py y agrega
@@ -87,10 +87,21 @@ def construir_respuesta_control(control: dict, status: str = "success") -> dict:
         "modo_humidificador": _modo_a_int(control.get("modo_humidificador")),
         "modo_co2": _modo_a_int(control.get("modo_co2")),
         "modo_luz": _modo_a_int(control.get("modo_luz")),
-        "compresor_directo": 1 if control.get("compresor_directo") else 0,
-        "version_nube": control.get("version_nube", "1.1.0"), 
-        "url_update": control.get("url_update", "")
+        "compresor_directo": 1 if control.get("compresor_directo") else 0
+        # 🛠️ CORRECCIÓN: Eliminamos 'version_nube' y 'url_update' de la inicialización fija
     }
+
+    # LÓGICA DE CONTROL DE LAZO CERRADO PARA LA OTA:
+    ota_disponible = control.get("ota_disponible", True)
+    
+    if ota_disponible:
+        # Inyección dinámica y segura de parámetros
+        respuesta["version_nube"] = control.get("version_nube") or version_actual or "1.1.0"        
+        respuesta["url_update"] = control.get("url_update", "")
+    else:
+        # Al no estar declarados arriba, si entra aquí, el JSON final NO contendrá estas llaves.
+        # El ESP32 estará 100% aislado de cualquier lógica de actualización.
+        print(f"🛑 [VETO OTA] Parámetros omitidos en el payload. Dispositivo penalizado en DB.")
 
     especie_val = control.get("especie")
     fase_val = control.get("fase")
@@ -190,6 +201,8 @@ class RegistroCompletoHistorial(BaseModel):
 class PaqueteRafaga(BaseModel):
     device_id: str
     batch_id: int
+    err_ota: Optional[int] = 0  # Captura el error del actualizador del ESP32
+    version_actual: Optional[str] = None  # Captura la versión del firmware del chip
     # Contiene la lista de registros completos tomados en el lapso de tiempo
     historial_lecturas: List[RegistroCompletoHistorial]
 
@@ -331,27 +344,47 @@ async def recibir_datos(data: PaqueteRafaga):
             except Exception as e_reg:
                 print(f"❌ Error registrando batch como procesado (riesgo de duplicado en el próximo reintento): {e_reg}")
         
+        # =====================================================================
+        # CONTROL DE INCIDENTES OTA (LAZO CERRADO DESDE EL BACKEND)
+        # =====================================================================
+        if data.err_ota and data.err_ota != 0:
+            print(f"🚨 [REPORTE FALLO OTA] ESP32 reportó error {data.err_ota}. Penalizando en base de datos...")
+            try:
+                # Actualizamos la fila de controles para registrar el error e inhabilitar la OTA automáticamente
+                await asyncio.to_thread(
+                    supabase.table("controles")
+                    .update({
+                        "ota_error_code": data.err_ota,
+                        "ota_disponible": False
+                    })
+                    .eq("id", 1)
+                    .execute
+                )
+                print("✅ Tabla 'controles' actualizada: ota_disponible=False.")
+            except Exception as e_ota_db:
+                print(f"❌ Error al intentar penalizar la OTA en la base de datos: {e_ota_db}")
+        # =====================================================================
+
         # BUG 1 CORREGIDO: Aislar la consulta de controles en su propio bloque try/except 
         # para que un fallo en Supabase no tumbe la petición ni retorne un HTTP 500 genérico.
         try:
             res_control = await asyncio.to_thread(supabase.table("controles").select("*").eq("id", 1).execute)
             
-            # BUG 2 CORREGIDO: Si la consulta es exitosa pero la data viene vacía (fila borrada),
-            # salta explícitamente al bloque else/fallback para inyectar las llaves obligatorias.
             if res_control.data and len(res_control.data) > 0:
                 control = res_control.data[0]
-                return construir_respuesta_control(control, status="success")
+                # CAMBIO: Pasamos data.version_actual a la función
+                return construir_respuesta_control(control, status="success", version_actual=data.version_actual)
             else:
-                print("⚠️ Fila id=1 no encontrada en la tabla controles. Aplicando valores seguros por defecto.")
-                return valores_fallback
+                print("⚠️ Fila id=1 no encontrada en la tabla controles. Aplicando valores seguros dinámicos.")
+                return construir_respuesta_control({"ota_disponible": False}, status="fallback", version_actual=data.version_actual)
 
         except Exception as e_control:
             print(f"❌ Error al consultar la tabla de controles (Supabase caído/timeout): {e_control}")
-            # Retornamos el diccionario completo con códigos seguros para que el hardware resista autónomamente
-            return valores_fallback
+            # CAMBIO CRÍTICO: Si Supabase se cae por completo, le respondemos al ESP32 usando su propia versión.
+            # Al ser iguales, el firmware sabe que no debe intentar ninguna actualización.
+            return construir_respuesta_control({"ota_disponible": False}, status="fallback", version_actual=data.version_actual)
 
     except Exception as e:
-        # Este bloque ahora solo atrapará fallos catastróficos de parsing locales internos de Python
         print(f"⚠️ Falla crítica estructural en el endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
