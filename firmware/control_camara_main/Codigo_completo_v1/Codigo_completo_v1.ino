@@ -1,3 +1,5 @@
+// Prototipo explícito para evitar fallos del preprocesador de Arduino
+bool enviarRafagaANube();
 #include <Wire.h>
 #include <7semi_SHT4x.h>
 #include <SensirionI2cScd4x.h>
@@ -12,10 +14,13 @@
 #include <Preferences.h>
 #include <time.h> // Requerido para NTP (configTime/getLocalTime) - fotoperiodo real
 
+// --- Control Antibloqueo para OTA ---
+int ultimo_error_ota = 0; // 0 = Sin error / Estado óptimo. Cualquier otro número = Código de error HTTP de httpUpdate
+
 Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
-const String VERSION_ACTUAL = "1.1.0"; // <-- TU VERSIÓN ACTUAL (Incrementar en cada compilación)
+const String VERSION_ACTUAL = "1.2.1"; //  (Incrementar en cada compilación) Versión anterior: 1.2.0
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
 const char* password = "macp092021";
@@ -53,7 +58,7 @@ HardwareSerial PZEMSerial(2);
 PZEM004Tv30 pzem(PZEMSerial, RXD2, TXD2);  
 
 // --- Configuración de Tiempos ---
-const unsigned long INTERVALO_MUESTREO = 5000;       
+const unsigned long INTERVALO_MUESTREO = 15000;       
 const unsigned long INTERVALO_TRANSMISION = 300000;  
 unsigned long ultimoMuestreo = 0;
 unsigned long ultimaTransmisionRafaga = 0;
@@ -135,8 +140,8 @@ int pwm_vent_lateral  = 0; int pwm_vent_superior = 0; int pwm_vent_co2      = 0;
 
 // Calibración
 float setpoint_temp = 20.0;                   
-const float HISTERESIS = 2.0;                       
-const float ANTICIPACION_CORTE = 1.0;               
+const float HISTERESIS = 0.6;                       
+const float ANTICIPACION_CORTE = 0.8;               
 
 // Filtro de Temperatura
 const int MAX_MUESTRAS_TEMP = 10;                   
@@ -231,7 +236,7 @@ bool estado_sht_ext = true;
 bool estado_sht_int = true;
 bool estado_scd = true;
 
-static const char ROOT_CA[] PROGMEM = R"EOF(
+static const char ROOT_CA_Railway[] PROGMEM = R"EOF(
 -----BEGIN CERTIFICATE-----
 MIIEcDCCAligAwIBAgIQbI8dxyfHEX97r4U6yYD5zTANBgkqhkiG9w0BAQsFADBP
 MQswCQYDVQQGEwJVUzEpMCcGA1UEChMgSW50ZXJuZXQgU2VjdXJpdHkgUmVzZWFy
@@ -260,52 +265,49 @@ TT0mQ/r5XyA4MEAiabn7XJjvCERlF2dcn2wqJw+CreTkkQ2R
 -----END CERTIFICATE-----
 )EOF";
 
+//certificado raíz de DigiCert Global Root G2 (que valida los endpoints de Cloudflare y AWS S3 donde Supabase almacena los binarios)
+// Mantén tu ROOT_CA original intacto para Railway arriba...
+
+
+
 void ejecutarActualizacionOTA(String url_binario) {
-  Serial.println("\n🚨 [OTA] Iniciando actualización de firmware...");
+  String url_proxy_railway = "https://orellanas-backend-production.up.railway.app/telemetria/firmware/download";
+
+  Serial.println("\n🔒 [OTA PROXY SEGURO] Iniciando verificación de firmas con Railway...");
   Serial.println("🚨 [OTA] Forzando apagado de actuadores por seguridad...");
 
-  // 1. Apagar compresor y humidificador inmediatamente
-  digitalWrite(compresor, LOW);
-  estado_compresor = 0;
-  digitalWrite(humidificador, LOW);
-  estado_humidificador = 0;
+  // Apagar actuadores por seguridad local inmediatamente
+  digitalWrite(compresor, LOW); estado_compresor = 0;
+  digitalWrite(humidificador, LOW); estado_humidificador = 0;
+  ledcWrite(vent_lateral, 0); ledcWrite(vent_superior, 0); ledcWrite(vent_co2, 0); ledcWrite(luz, 0); ledcWrite(aux, 0);
 
-  // 2. Apagar todos los ventiladores y luces (PWM a 0)
-  ledcWrite(vent_lateral, 0);
-  ledcWrite(vent_superior, 0);
-  ledcWrite(vent_co2, 0);
-  ledcWrite(luz, 0);
-  ledcWrite(aux, 0);
+  delay(1000); 
 
-  delay(1000); // Esperar a que los relés y cargas se desmagneticen
-
-  // 3. Preparar el cliente seguro para descargar el archivo
   WiFiClientSecure cliente_ota;
-  cliente_ota.setCACert(ROOT_CA); // Reutiliza tu certificado de confianza para descargas seguras
+  cliente_ota.setCACert(ROOT_CA_Railway); 
   
-  // Configuramos el reinicio automático tras la descarga exitosa
+  // 🛠️ CORRECCIÓN CRÍTICA: Instanciar HTTPClient para poder inyectar el Header
+  HTTPClient http_ota;
+  http_ota.begin(cliente_ota, url_proxy_railway);
+  http_ota.addHeader("X-API-Key", API_SECRET_ESP32); // Ahora es totalmente válido
+
+  httpUpdate.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
   httpUpdate.rebootOnUpdate(true);
 
-  Serial.printf("📥 [OTA] Descargando binario desde: %s\n", url_binario.c_str());
+  Serial.printf("📥 [OTA PROXY SEGURO] Descargando flujo binario desde: %s\n", url_proxy_railway.c_str());
   
-  // 4. Iniciar la actualización
-  t_httpUpdate_return resultado = httpUpdate.update(cliente_ota, url_binario);
+  // Pasamos el objeto http_ota completo al actualizador
+  t_httpUpdate_return resultado = httpUpdate.update(http_ota);
 
-  // Si la función continúa después de update(), significa que el proceso falló
-  switch (resultado) {
-    case HTTP_UPDATE_FAILED:
-      Serial.printf("❌ [OTA] Falló la actualización. Error (%d): %s\n", 
-                    httpUpdate.getLastError(), 
+  if (resultado == HTTP_UPDATE_FAILED) {
+      ultimo_error_ota = httpUpdate.getLastError();
+      Serial.printf("❌ [OTA PROXY SEGURO] Falló la actualización. Error (%d): %s\n", 
+                    ultimo_error_ota, 
                     httpUpdate.getLastErrorString().c_str());
-      break;
-    case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("ℹ️ [OTA] No se encontraron actualizaciones en el servidor.");
-      break;
-    case HTTP_UPDATE_OK:
-      Serial.println("✅ [OTA] Actualización completada correctamente.");
-      break;
   }
 }
+
+
 
 void setup() {
   prefs.begin("orellanas", false);
@@ -833,204 +835,153 @@ void leersensores(){
 }
 
 bool enviarRafagaANube() {
-    WiFiClientSecure client;
-    client.setCACert(ROOT_CA);
-    client.setTimeout(4000); /*Esto evita que un handshake TLS lento o una red inestable dejen bloqueado el ESP32 durante demasiado tiempo. Un valor de x segundos suele ser un buen compromiso para conexiones móviles o WiFi con latencia elevada.*/
-    HTTPClient http;
-    
-    // CORRECCIÓN SINTAXIS: Se niega para controlar el fallo de inicialización
-  
-    if (!http.begin(client, serverName)) {
-      Serial.println("❌ No se pudo inicializar la conexión HTTP con el cliente seguro.");
-      return false;
-    }
-    
-    http.addHeader("Content-Type", "application/json");
-    http.addHeader("X-API-Key", API_SECRET_ESP32);
-    http.setTimeout(4000); // Corta la espera de la respuesta del servidor a 4 segundos max
-    //reserva 24576 para 20 registros
-    DynamicJsonDocument doc(24576); 
-    doc["device_id"] = DEVICE_ID;
-    doc["batch_id"] = batchID;
-    JsonArray historial = doc.createNestedArray("historial_lecturas");
+    String url_para_actualizar = "";
+    String version_nube_detectada = "";
+    bool exito_post = false;
 
-    int inicio = bufferLleno ? indiceEscritura: 0;
-    for (int i = 0; i < cantidadLecturas; i++) {
-        int idx = (inicio + i) % MAX_LECTURAS;
-        JsonObject obj = historial.createNestedObject();
-        obj["timestamp"]   = bufferCultivo[idx].timestamp;
-        obj["err_max"]  = bufferCultivo[idx].err_max;
-        obj["err_sht_ext"] = bufferCultivo[idx].err_sht_ext;
-        obj["err_sht_int"] = bufferCultivo[idx].err_sht_int;
-        obj["err_scd"]  = bufferCultivo[idx].err_scd;
-        obj["err_pzem"] = bufferCultivo[idx].err_pzem;
-        obj["temp_comp"]   = bufferCultivo[idx].temp_comp;
-        obj["temp_ext"]    = bufferCultivo[idx].temp_ext;
-        obj["hum_ext"]     = bufferCultivo[idx].hum_ext;
-        obj["temp_int_sup"] = bufferCultivo[idx].temp_int_sup;
-        obj["hum_int_sup"]  = bufferCultivo[idx].hum_int_sup;
-        obj["temp_int_inf"] = bufferCultivo[idx].temp_int_inf;
-        obj["hum_int_inf"]  = bufferCultivo[idx].hum_int_inf;
-        obj["co2_inf"]      = bufferCultivo[idx].co2_inf;
-        obj["resistencia"]  = bufferCultivo[idx].resistencia;
-        obj["puerta"]       = bufferCultivo[idx].puerta;
-        obj["voltaje"]         = bufferCultivo[idx].voltaje;
-        obj["corriente_neta"]  = bufferCultivo[idx].corriente_neta;
-        obj["potencia_w"]      = bufferCultivo[idx].potencia_w;
-        obj["energia_kwh"]     = bufferCultivo[idx].energia_kwh;
-        obj["frecuencia_hz"]   = bufferCultivo[idx].frecuencia_hz;
-        obj["factor_potencia"] = bufferCultivo[idx].factor_potencia;
-        obj["vent_lateral"]   = bufferCultivo[idx].pwm_vent_lateral;
-        obj["vent_superior"]  = bufferCultivo[idx].pwm_vent_superior;
-        obj["vent_co2"]       = bufferCultivo[idx].pwm_vent_co2;
-        obj["luz"]            = bufferCultivo[idx].pwm_luz;
-        obj["pwm_auxiliar"]   = bufferCultivo[idx].pwm_auxiliar;
-        obj["humidificador"]  = bufferCultivo[idx].humidificador;
-        obj["compresor"]      = bufferCultivo[idx].compresor;
-        obj["compresor_disponible"] = bufferCultivo[idx].compresor_disponible;
-        obj["tiempo_ciclo_compresor"] = bufferCultivo[idx].tiempo_ciclo_compresor;
-        obj["setpoint_temp"] = bufferCultivo[idx].setpoint_temp;
-        obj["especie_actual"] = bufferCultivo[idx].especie_actual;
-        obj["fase_actual"]    = bufferCultivo[idx].fase_actual;
-        obj["hum_setpoint_min"] = bufferCultivo[idx].hum_setpoint_min;
-        obj["hum_setpoint_max"] = bufferCultivo[idx].hum_setpoint_max;
-        obj["co2_setpoint_max"] = bufferCultivo[idx].co2_setpoint_max;
-        obj["luz_fotoperiodo_on"] = bufferCultivo[idx].luz_fotoperiodo_on;
-        obj["hora_sincronizada"]  = bufferCultivo[idx].hora_sincronizada;
-        obj["err_luz"] = bufferCultivo[idx].err_luz;
-        obj["permiso_nube_humidificador"] = bufferCultivo[idx].permiso_nube_humidificador;
-        obj["permiso_nube_co2"] = bufferCultivo[idx].permiso_nube_co2;
-        obj["permiso_nube_luz"] = bufferCultivo[idx].permiso_nube_luz;
-    }
+    // 🛠️ CAPSULA DE MEMORIA: Todo lo que esté aquí adentro se destruirá al cerrar la llave
+    {
+        WiFiClientSecure client;
+        client.setCACert(ROOT_CA_Railway);
+        client.setTimeout(4000);
+        HTTPClient http;
+      
+        if (!http.begin(client, serverName)) {
+          Serial.println("❌ No se pudo inicializar la conexión HTTP con el cliente seguro.");
+          return false;
+        }
+        
+        http.addHeader("Content-Type", "application/json");
+        http.addHeader("X-API-Key", API_SECRET_ESP32);
+        http.setTimeout(4000);
+        
+        DynamicJsonDocument doc(24576); // Ocupa RAM temporalmente
+        doc["device_id"] = DEVICE_ID;
+        doc["batch_id"] = batchID;
+        doc["err_ota"] = ultimo_error_ota; 
+        doc["version_actual"] = VERSION_ACTUAL; 
+        JsonArray historial = doc.createNestedArray("historial_lecturas");
 
-    // Verificación de overflow: DynamicJsonDocument NO crece solo. Si esto
-    // dispara, hay que aumentar la capacidad reservada arriba — de lo
-    // contrario el JSON se envía truncado sin ningún otro aviso.
-    if (doc.overflowed()) {
-      Serial.println("🔴 ALERTA: DynamicJsonDocument desbordado — el JSON se está truncando. Aumentar la capacidad reservada.");
-    }
+        int inicio = bufferLleno ? indiceEscritura : 0;
+        for (int i = 0; i < cantidadLecturas; i++) {
+            int idx = (inicio + i) % MAX_LECTURAS;
+            JsonObject obj = historial.createNestedObject();
+            obj["timestamp"]   = bufferCultivo[idx].timestamp;
+            obj["err_max"]     = bufferCultivo[idx].err_max;
+            obj["err_sht_ext"] = bufferCultivo[idx].err_sht_ext;
+            obj["err_sht_int"] = bufferCultivo[idx].err_sht_int;
+            obj["err_scd"]     = bufferCultivo[idx].err_scd;
+            obj["err_pzem"]    = bufferCultivo[idx].err_pzem;
+            obj["temp_comp"]   = bufferCultivo[idx].temp_comp;
+            obj["temp_ext"]    = bufferCultivo[idx].temp_ext;
+            obj["hum_ext"]     = bufferCultivo[idx].hum_ext;
+            obj["temp_int_sup"] = bufferCultivo[idx].temp_int_sup;
+            obj["hum_int_sup"]  = bufferCultivo[idx].hum_int_sup;
+            obj["temp_int_inf"] = bufferCultivo[idx].temp_int_inf;
+            obj["hum_int_inf"]  = bufferCultivo[idx].hum_int_inf;
+            obj["co2_inf"]      = bufferCultivo[idx].co2_inf;
+            obj["resistencia"]  = bufferCultivo[idx].resistencia;
+            obj["puerta"]       = bufferCultivo[idx].puerta;
+            obj["voltaje"]         = bufferCultivo[idx].voltaje;
+            obj["corriente_neta"]  = bufferCultivo[idx].corriente_neta;
+            obj["potencia_w"]      = bufferCultivo[idx].potencia_w;
+            obj["energia_kwh"]     = bufferCultivo[idx].energia_kwh;
+            obj["frecuencia_hz"]   = bufferCultivo[idx].frecuencia_hz;
+            obj["factor_potencia"] = bufferCultivo[idx].factor_potencia;
+            obj["vent_lateral"]   = bufferCultivo[idx].pwm_vent_lateral;
+            obj["vent_superior"]  = bufferCultivo[idx].pwm_vent_superior;
+            obj["vent_co2"]       = bufferCultivo[idx].pwm_vent_co2;
+            obj["luz"]            = bufferCultivo[idx].pwm_luz;
+            obj["pwm_auxiliar"]   = bufferCultivo[idx].pwm_auxiliar;
+            obj["humidificador"]  = bufferCultivo[idx].humidificador;
+            obj["compresor"]      = bufferCultivo[idx].compresor;
+            obj["compresor_disponible"] = bufferCultivo[idx].compresor_disponible;
+            obj["tiempo_ciclo_compresor"] = bufferCultivo[idx].tiempo_ciclo_compresor;
+            obj["setpoint_temp"] = bufferCultivo[idx].setpoint_temp;
+            obj["especie_actual"] = bufferCultivo[idx].especie_actual;
+            obj["fase_actual"]    = bufferCultivo[idx].fase_actual;
+            obj["hum_setpoint_min"] = bufferCultivo[idx].hum_setpoint_min;
+            obj["hum_setpoint_max"] = bufferCultivo[idx].hum_setpoint_max;
+            obj["co2_setpoint_max"] = bufferCultivo[idx].co2_setpoint_max;
+            obj["luz_fotoperiodo_on"] = bufferCultivo[idx].luz_fotoperiodo_on;
+            obj["hora_sincronizada"]  = bufferCultivo[idx].hora_sincronizada;
+            obj["err_luz"] = bufferCultivo[idx].err_luz;
+            obj["permiso_nube_humidificador"] = bufferCultivo[idx].permiso_nube_humidificador;
+            obj["permiso_nube_co2"] = bufferCultivo[idx].permiso_nube_co2;
+            obj["permiso_nube_luz"] = bufferCultivo[idx].permiso_nube_luz;
+        }
 
-    String requestBody;
-    serializeJson(doc, requestBody);
+        if (doc.overflowed()) {
+          Serial.println("🔴 ALERTA: DynamicJsonDocument desbordado.");
+        }
 
-    Serial.println("🚀 Enviando ráfaga analítica a Railway...");
-    Serial.printf("📤 batch_id=%lu | muestras=%d\n",batchID,cantidadLecturas);
-    Serial.printf("JSON: %u bytes\n", requestBody.length());
-    int httpResponseCode = http.POST(requestBody);
-    bool exito = false;
+        String requestBody;
+        serializeJson(doc, requestBody);
 
-    if (httpResponseCode > 0) {
+        Serial.println("🚀 Enviando ráfaga analítica a Railway...");
+        int httpResponseCode = http.POST(requestBody);
+
         if (httpResponseCode >= 200 && httpResponseCode < 300) {
-          Serial.printf("✅ Ráfaga enviada. Código: %d\n", httpResponseCode);
-          String payload = http.getString();
-          DynamicJsonDocument docRespuesta(1024);
-          
-          // CORRECCIÓN SINTAXIS: Captura explícita del error de parseo
-          DeserializationError error = deserializeJson(docRespuesta, payload);
-          
-          if (!error) {
-              
-              if (docRespuesta.containsKey("set_compresor")) {
-                permiso_nube_compresor = docRespuesta["set_compresor"];
-              }
-              if (docRespuesta.containsKey("setpoint_temp")) {
-                setpoint_temp = docRespuesta["setpoint_temp"];
-              }
-              
-              // Humedad, CO2 y luz ya NO se fijan directamente desde la nube:
-              // son lazos locales (controlarHumedadCultivo(), controlarCO2Cultivo(),
-              // gestionarFotoperiodo()). La nube solo puede VETAR el actuador,
-              // igual que permiso_nube_compresor con el compresor.
-              if (docRespuesta.containsKey("permiso_nube_humidificador")) {
-                permiso_nube_humidificador = docRespuesta["permiso_nube_humidificador"];
-              }
-              if (docRespuesta.containsKey("permiso_nube_co2")) {
-                permiso_nube_co2 = docRespuesta["permiso_nube_co2"];
-              }
-              if (docRespuesta.containsKey("permiso_nube_luz")) {
-                permiso_nube_luz = docRespuesta["permiso_nube_luz"];
-              }
+            Serial.printf("✅ Ráfaga enviada. Código http: %d\n", httpResponseCode);
+            ultimo_error_ota = 0;
+            String payload = http.getString();
+            DynamicJsonDocument docRespuesta(1024);
+            DeserializationError error = deserializeJson(docRespuesta, payload);
+            
+            if (!error) {
+                // ... (Mapeo de comandos intermedios se mantiene igual) ...
+                if (docRespuesta.containsKey("set_compresor")) permiso_nube_compresor = docRespuesta["set_compresor"];
+                if (docRespuesta.containsKey("setpoint_temp")) setpoint_temp = docRespuesta["setpoint_temp"];
+                if (docRespuesta.containsKey("permiso_nube_humidificador")) permiso_nube_humidificador = docRespuesta["permiso_nube_humidificador"];
+                if (docRespuesta.containsKey("permiso_nube_co2")) permiso_nube_co2 = docRespuesta["permiso_nube_co2"];
+                if (docRespuesta.containsKey("permiso_nube_luz")) permiso_nube_luz = docRespuesta["permiso_nube_luz"];
 
-              // Especie/fase: la nube PROPONE, el firmware VALIDA antes de aplicar.
-              // Un valor fuera de rango o corrupto se ignora por completo — nunca
-              // se aplica un perfil inválido.
-              if (docRespuesta.containsKey("especie") && docRespuesta.containsKey("fase")) {
-                int especie_nueva = docRespuesta["especie"];
-                int fase_nueva    = docRespuesta["fase"];
-                bool especie_valida = (especie_nueva == PLEUROTUS || especie_nueva == HERICIUM);
-                bool fase_valida    = (fase_nueva == INCUBACION || fase_nueva == FRUCTIFICACION);
-
-                if (especie_valida && fase_valida) {
-                  if (especie_nueva != especie_actual || fase_nueva != fase_actual) {
-                    especie_actual = (Especie) especie_nueva;
-                    fase_actual    = (Fase) fase_nueva;
-                    prefs.putUChar("especie", especie_actual);
-                    prefs.putUChar("fase", fase_actual);
-                    aplicarPerfilLocal();
-                    Serial.println("🔄 Especie/fase actualizada desde la nube.");
-                  }
-                } else {
-                  Serial.printf(
-                    "⚠️ especie=%d o fase=%d fuera de rango recibido de la nube. Se ignora, se mantiene el perfil actual.\n",
-                    especie_nueva, fase_nueva
-                  );
+                if (docRespuesta.containsKey("especie") && docRespuesta.containsKey("fase")) {
+                    int especie_nueva = docRespuesta["especie"]; int fase_nueva = docRespuesta["fase"];
+                    if ((especie_nueva == PLEUROTUS || especie_nueva == HERICIUM) && (fase_nueva == INCUBACION || fase_nueva == FRUCTIFICACION)) {
+                        if (especie_nueva != especie_actual || fase_nueva != fase_actual) {
+                            especie_actual = (Especie)especie_nueva; fase_actual = (Fase)fase_nueva;
+                            prefs.putUChar("especie", especie_actual); prefs.putUChar("fase", fase_actual);
+                            aplicarPerfilLocal();
+                        }
+                    }
                 }
-              }
 
-              if (docRespuesta.containsKey("version_nube") && docRespuesta.containsKey("url_update")) {
-                String version_nube = docRespuesta["version_nube"].as<String>();
-                String url_update = docRespuesta["url_update"].as<String>();
-
-                if (version_nube != VERSION_ACTUAL && url_update.length() > 0) {
-                  Serial.printf("\n🆕 [OTA] ¡Nueva versión de firmware detectada en la nube!\n");
-                  Serial.printf("   -> Versión Local: %s\n", VERSION_ACTUAL.c_str());
-                  Serial.printf("   -> Versión Nube:  %s\n", version_nube.c_str());
-                  
-                  // Detenemos la comunicación http antes de iniciar el flasheo para liberar recursos de red
-                  http.end();
-                  
-                  // Ejecutar proceso de actualización segura Esto reiniciará el ESP32 si tiene éxito
-                  ejecutarActualizacionOTA(url_update);
-                  return true; // Salida rápida
+                // Extrayendo variables de actualización
+                if (docRespuesta.containsKey("version_nube") && docRespuesta.containsKey("url_update")) {                
+                    version_nube_detectada = docRespuesta["version_nube"].as<String>();
+                    url_para_actualizar = docRespuesta["url_update"].as<String>();
                 }
-              }
+                exito_post = true;
+            }
+        } else {
+            Serial.printf("❌ Error HTTP del Servidor: %d\n", httpResponseCode);
+        }
+        http.end();
+    } // 🛠️ AQUÍ MUERE EL ÁMBITO: 'doc', 'client' y 'http' son borrados de la RAM. 
+      // Recuperamos instantáneamente ~25 KB de Heap.
 
-              exito = true; 
-              batchID++; 
-              prefs.putUInt("batch_id", batchID);
-              // 🛠️ AJUSTE CRÍTICO: Reiniciar el índice para el próximo lote limpio
-              indiceEscritura = 0;
-              Serial.printf("🆔 Próximo batch_id=%lu\n",batchID);
-              Serial.println("\n--- 📥 PARÁMETROS ACTUALIZADOS DESDE LA NUBE ---");
-          } else {
-              Serial.printf("❌ Error al parsear JSON: %s\n", error.c_str());
-              http.end();
-              return false;
-          }
-        }else {
-          String respuesta = http.getString();
-          Serial.println("========== ERROR DEL SERVIDOR ==========");
-          Serial.printf("❌ HTTP %d\n",httpResponseCode);
-          Serial.printf("device_id: %s\n", DEVICE_ID);
-          Serial.printf("batch_id: %lu\n", batchID);
-          Serial.printf("muestras: %d\n",cantidadLecturas);
-          Serial.println("Respuesta:");
-          Serial.println(respuesta);
-          Serial.println("➡️ La ráfaga permanecerá en RAM para reintento.");
-          Serial.println("========================================");
-        } 
-    } else{
-        Serial.println();
-        Serial.println("========== ERROR HTTPS ==========");
-        Serial.printf("❌ Error: %s\n",http.errorToString(httpResponseCode).c_str());
-        Serial.printf("device_id: %s\n", DEVICE_ID);
-        Serial.printf("batch_id: %lu\n", batchID);
-        Serial.printf("muestras: %d\n",cantidadLecturas);
-        Serial.println("➡️ Se conservará la ráfaga para reintento.");
-        Serial.println("===============================");
-    }     
-    http.end();
-    return exito;
+    // 🚀 EJECUCIÓN FUERA DE ALCANCE: Ahora el Heap está completamente limpio para el TLS de Supabase
+    if (exito_post) {
+        if (url_para_actualizar.length() > 0 && version_nube_detectada != VERSION_ACTUAL) {
+            Serial.printf("\n🆕 [OTA] ¡Nueva versión detectada! RAM liberada. Saltando a actualización...\n");
+            
+            // Incrementamos el lote local antes de la OTA para evitar el bucle de lotes duplicados
+            batchID++; 
+            prefs.putUInt("batch_id", batchID);
+            indiceEscritura = 0;
+            
+            ejecutarActualizacionOTA(url_para_actualizar);
+            return true; 
+        }
+        
+        // Si el POST fue exitoso pero no requería OTA, avanzamos con normalidad
+        batchID++; 
+        prefs.putUInt("batch_id", batchID);
+        indiceEscritura = 0;
+        Serial.printf("🆔 Próximo batch_id=%lu\n", batchID);
+    }
+    return exito_post;
 }
 
 int fallosConsecutivosEnvio = 0;
@@ -1131,32 +1082,31 @@ void loop() {
   gestionarFotoperiodo();
   gestionarResyncNTP();
   // TAREA 2: Transmisión o Reintento Asíncrono controlado
-  if (muestrasDesdeUltimoEnvio >= MAX_LECTURAS ) {
-      if (millis() - ultimaTransmisionRafaga >= tiempo_reintento_envio_rafaga) {
-          // ultimaTransmisionRafaga = millis();
-          Serial.printf("📤 Intentando transmitir %d muestras...\n",
-            cantidadLecturas
-          );
-          
-          if (WiFi.status() == WL_CONNECTED) {
-              if (enviarRafagaANube()) {
-                ultimaTransmisionRafaga = millis();
-                cantidadLecturas = 0; // Vaciado exitoso del buffer
-                bufferLleno = false;
-                muestrasDesdeUltimoEnvio = 0;
-                fallosConsecutivosEnvio = 0;
-                Serial.println("✅ Buffer liberado.");
-              } else {
-                  fallosConsecutivosEnvio++;
-                  ultimaTransmisionRafaga = millis();
-                  Serial.printf("⚠️ Error enviando la ráfaga. Intento fallido #%d\n", fallosConsecutivosEnvio);
-              }
+  // TAREA 2: Transmisión o Reintento Asíncrono controlado por TIEMPO ESTRICTO
+  if (tiempoActual - ultimaTransmisionRafaga >= INTERVALO_TRANSMISION) {
+      Serial.printf("📤 Intentando transmitir %d muestras...\n", cantidadLecturas);
+      
+      if (WiFi.status() == WL_CONNECTED) {
+          if (enviarRafagaANube()) {
+              ultimaTransmisionRafaga = tiempoActual; // Éxito: Siguiente envío en 5 minutos
+              cantidadLecturas = 0; 
+              bufferLleno = false;
+              muestrasDesdeUltimoEnvio = 0;
+              fallosConsecutivosEnvio = 0;
+              Serial.println("✅ Buffer liberado.");
           } else {
-            ultimaTransmisionRafaga = millis();
-            fallosConsecutivosEnvio++;
-            Serial.println("⚠️ Sin Wi-Fi disponible.");
+              fallosConsecutivosEnvio++;
+              // 🛠️ CORRECCIÓN: Ajustamos el tiempo para reintentar en 30 segundos
+              ultimaTransmisionRafaga = tiempoActual - INTERVALO_TRANSMISION + tiempo_reintento_envio_rafaga;
+              Serial.printf("⚠️ Error enviando la ráfaga. Intento fallido #%d. Reintento en 30s.\n", fallosConsecutivosEnvio);
           }
+      } else {
+          fallosConsecutivosEnvio++;
+          // 🛠️ CORRECCIÓN: Ajustamos el tiempo para reintentar en 30 segundos por falta de Wi-Fi
+          ultimaTransmisionRafaga = tiempoActual - INTERVALO_TRANSMISION + tiempo_reintento_envio_rafaga;
+          Serial.printf("⚠️ Sin Wi-Fi disponible. Intento fallido #%d. Reintento en 30s.\n", fallosConsecutivosEnvio);
       }
   }
+  
   delay(10); 
 }

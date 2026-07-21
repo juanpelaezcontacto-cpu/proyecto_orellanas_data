@@ -5,18 +5,29 @@ from dotenv import load_dotenv
 from supabase import create_client, Client
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from fastapi import FastAPI, HTTPException, Header, Depends
+from fastapi import FastAPI, HTTPException, Header, Depends, Response
 from pydantic import BaseModel
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse  # 🛠️ Agregado StreamingResponse
 from typing import Optional, List
 import asyncio
+import httpx  # 🛠️ Requisito para el proxy seguro
+from fastapi.middleware.cors import CORSMiddleware  # 🔌 
 
 # Inicializar la aplicación web
 app = FastAPI(
     title="API de Telemetría - Sistema Orellanas",
     description="Gateway HTTP para el monitoreo automatizado de hongos Orellanas",
     version="1.0.0"
+)
+
+# 🔌 CONFIGURACIÓN DE CORS PARA EL FRONTEND
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Si usas un dominio específico, cámbialo por ["https://tu-frontend.com"]
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # 1. Cargar variables de entorno ocultas
@@ -29,9 +40,6 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     print("❌ Error: No se encontraron las credenciales en el archivo .env")
     exit(1)
 
-# Mismo criterio que las credenciales de Supabase: si no está configurado,
-# el servicio no arranca. Un backend que acepta escribir en tu cultivo sin
-# autenticación no es aceptable como comportamiento por defecto.
 if not API_SECRET_ESP32:
     print("❌ Error: No se encontró API_SECRET_ESP32 en las variables de entorno. "
           "Debe coincidir exactamente con el valor de API_SECRET_ESP32 en el firmware.")
@@ -44,7 +52,7 @@ print("⚡ Conexión inicializada con Supabase.")
 
 async def verificar_api_key(x_api_key: str = Header(None)):
     """
-    Dependencia de autenticación para /telemetria. Usa comparación de tiempo
+    Dependencia de autenticación para /telemetria y proxy de firmware. Usa comparación de tiempo
     constante (hmac.compare_digest) para no filtrar el secreto por diferencias
     de tiempo de respuesta entre intentos de fuerza bruta.
     """
@@ -61,7 +69,7 @@ def _modo_a_int(valor) -> int:
     return 1 if valor else 0
 
 
-def construir_respuesta_control(control: dict, status: str = "success") -> dict:
+def construir_respuesta_control(control: dict, status: str = "success", version_actual: Optional[str] = None) -> dict:
     """
     Arma la respuesta JSON de controles que consume el ESP32.
     Mantiene compatibilidad con los campos existentes en main.py y agrega
@@ -87,16 +95,18 @@ def construir_respuesta_control(control: dict, status: str = "success") -> dict:
         "modo_humidificador": _modo_a_int(control.get("modo_humidificador")),
         "modo_co2": _modo_a_int(control.get("modo_co2")),
         "modo_luz": _modo_a_int(control.get("modo_luz")),
-        "compresor_directo": 1 if control.get("compresor_directo") else 0,
-        "version_nube": control.get("version_nube", "1.1.0"), 
-        "url_update": control.get("url_update", "")
+        "compresor_directo": 1 if control.get("compresor_directo") else 0
     }
 
-    especie_val = control.get("especie")
-    fase_val = control.get("fase")
-    if especie_val is not None and fase_val is not None:
-        respuesta["especie"] = especie_val
-        respuesta["fase"] = fase_val
+    version_nube = control.get("version_nube", "1.1.0")
+    ota_disponible = control.get("ota_disponible", True)
+    
+    # Si la bandera está activa O si detectamos que el chip tiene una versión vieja, enviamos los datos
+    if ota_disponible or (version_actual and version_actual != version_nube):
+        respuesta["version_nube"] = version_nube        
+        respuesta["url_update"] = control.get("url_update", "")
+    else:
+        print(f"🛑 [OTA] Dispositivo al día o congelado administrativamente.")
 
     return respuesta
 
@@ -126,21 +136,13 @@ VALORES_FALLBACK_CONTROL = construir_respuesta_control({
 }, status="fallback")
 
 
-# =====================================================================
-# 2. MODELOS DE VALIDACIÓN DE DATOS (PYDANTIC) - REGISTRO TOTAL
-# =====================================================================
-
-# SUB-MODELO: Representa la foto completa del sistema tomada cada 5 segundos
 class RegistroCompletoHistorial(BaseModel):
-    # Diagnóstico (Errores)
-    timestamp: Optional[int] = 0  # Unix Epoch enviado por el ESP32 (0 si no tiene hora)
+    timestamp: Optional[int] = 0  
     err_max: int
     err_sht_ext: int  
     err_sht_int: int  
     err_scd: int
     err_pzem: int
-
-    # Sensores Ambiente
     temp_comp: float
     temp_ext: float          
     hum_ext: float           
@@ -151,16 +153,12 @@ class RegistroCompletoHistorial(BaseModel):
     co2_inf: int           
     resistencia: float
     puerta: int
-
-    # Consumo Eléctrico
     voltaje: Optional[float] = None
     corriente_neta: Optional[float] = None
     potencia_w: Optional[float] = None
     energia_kwh: Optional[float] = None
     frecuencia_hz: Optional[float] = None
     factor_potencia: Optional[float] = None
-
-    # Variables de estado de actuadores (Salidas)
     vent_lateral: int   
     vent_superior: int  
     vent_co2: int       
@@ -170,9 +168,7 @@ class RegistroCompletoHistorial(BaseModel):
     compresor: bool      
     compresor_disponible: bool
     tiempo_ciclo_compresor: int  
-    setpoint_temp: float        # nombrada igual a supabase, en c++ es SETPOINT_TEMP
-
-    # Perfil de cultivo y lazos de humedad/CO2/luz
+    setpoint_temp: float        
     especie_actual: int
     fase_actual: int
     hum_setpoint_min: float
@@ -186,27 +182,17 @@ class RegistroCompletoHistorial(BaseModel):
     permiso_nube_luz: bool
 
 
-# MODELO PRINCIPAL: El contenedor que recibe la ráfaga cada 5 minutos
 class PaqueteRafaga(BaseModel):
     device_id: str
     batch_id: int
-    # Contiene la lista de registros completos tomados en el lapso de tiempo
+    err_ota: Optional[int] = 0  
+    version_actual: Optional[str] = None  
     historial_lecturas: List[RegistroCompletoHistorial]
 
 
 @app.post("/telemetria", dependencies=[Depends(verificar_api_key)])
 async def recibir_datos(data: PaqueteRafaga): 
-    # Valores por defecto de contingencia (Fallback seguro en caso de error)
-    # Se inicializan asumiendo un estado neutro y seguro para el cultivo
-    valores_fallback = VALORES_FALLBACK_CONTROL.copy()
-
     try:
-        # VERIFICACIÓN DE DUPLICADOS: el firmware reintenta con el mismo
-        # batch_id si la respuesta se pierde tras un insert exitoso. Antes de
-        # insertar, se verifica si este (device_id, batch_id) ya fue
-        # procesado — si sí, se omite la reinserción pero se sigue
-        # respondiendo con los controles vigentes para que el dispositivo
-        # pueda vaciar su buffer igual.
         batch_ya_procesado = False
         try:
             res_batch = await asyncio.to_thread(
@@ -221,9 +207,6 @@ async def recibir_datos(data: PaqueteRafaga):
                 print(f"⚠️ Batch duplicado: device_id={data.device_id} batch_id={data.batch_id}. "
                       f"Se omite reinserción de telemetría, se responde igual con los controles vigentes.")
         except Exception as e_check:
-            # Si la verificación falla (tabla no existe todavía, timeout, etc.)
-            # se asume que NO es duplicado para no bloquear la ingesta normal
-            # — prioriza disponibilidad sobre deduplicación perfecta.
             print(f"❌ Error verificando duplicado de batch (se continúa asumiendo que no lo es): {e_check}")
 
         lista_sensores = []
@@ -234,8 +217,6 @@ async def recibir_datos(data: PaqueteRafaga):
         ahora_utc = datetime.now(ZoneInfo("UTC"))
         
         for i, lectura in enumerate(data.historial_lecturas):
-            # NOTA DE TIMING: Sigue siendo un cálculo inverso aproximado, pero garantizamos que 
-            # las estructuras locales se guarden bajo la misma consistencia temporal en Supabase.
             if lectura.timestamp and lectura.timestamp > 0:
                 marca_tiempo = datetime.fromtimestamp(lectura.timestamp, tz=ZoneInfo("UTC")).isoformat()
             else:
@@ -295,8 +276,6 @@ async def recibir_datos(data: PaqueteRafaga):
                 "permiso_nube_luz": lectura.permiso_nube_luz
             })
 
-        # SOLUCIÓN DE DEUDA TÉCNICA: Sacar operaciones bloqueantes síncronas del event loop de FastAPI
-        # Correr los inserts de red en un ejecutor de hilos paralelo usando asyncio.to_thread
         if not batch_ya_procesado:
             if lista_sensores:
                 try:
@@ -316,10 +295,6 @@ async def recibir_datos(data: PaqueteRafaga):
                 except Exception as e_est:
                     print(f"❌ Error específico en tabla estado_sistema: {e_est}")
 
-            # Registrar el batch como procesado SOLO después de intentar los
-            # inserts. Si esto falla, el próximo reintento del firmware con el
-            # mismo batch_id volverá a insertar duplicados — es un riesgo
-            # residual conocido, no un caso silencioso: queda logueado.
             try:
                 await asyncio.to_thread(
                     supabase.table("lotes_procesados").insert({
@@ -329,32 +304,79 @@ async def recibir_datos(data: PaqueteRafaga):
                     }).execute
                 )
             except Exception as e_reg:
-                print(f"❌ Error registrando batch como procesado (riesgo de duplicado en el próximo reintento): {e_reg}")
+                print(f"❌ Error registrando batch como procesado: {e_reg}")
         
-        # BUG 1 CORREGIDO: Aislar la consulta de controles en su propio bloque try/except 
-        # para que un fallo en Supabase no tumbe la petición ni retorne un HTTP 500 genérico.
+        if data.err_ota and data.err_ota != 0:
+            # Solo registra en el log del servidor, NO toques la base de datos
+            print(f"⚠️ [AVISO OTA DEVICE] El ESP32 reportó código de estado anterior: {data.err_ota}")
+        
         try:
             res_control = await asyncio.to_thread(supabase.table("controles").select("*").eq("id", 1).execute)
-            
-            # BUG 2 CORREGIDO: Si la consulta es exitosa pero la data viene vacía (fila borrada),
-            # salta explícitamente al bloque else/fallback para inyectar las llaves obligatorias.
             if res_control.data and len(res_control.data) > 0:
                 control = res_control.data[0]
-                return construir_respuesta_control(control, status="success")
+                return construir_respuesta_control(control, status="success", version_actual=data.version_actual)
             else:
-                print("⚠️ Fila id=1 no encontrada en la tabla controles. Aplicando valores seguros por defecto.")
-                return valores_fallback
-
+                print("⚠️ Fila id=1 no encontrada en la tabla controles. Aplicando valores seguros dinámicos.")
+                return construir_respuesta_control({"ota_disponible": False}, status="fallback", version_actual=data.version_actual)
         except Exception as e_control:
             print(f"❌ Error al consultar la tabla de controles (Supabase caído/timeout): {e_control}")
-            # Retornamos el diccionario completo con códigos seguros para que el hardware resista autónomamente
-            return valores_fallback
+            return construir_respuesta_control({"ota_disponible": False}, status="fallback", version_actual=data.version_actual)
 
     except Exception as e:
-        # Este bloque ahora solo atrapará fallos catastróficos de parsing locales internos de Python
         print(f"⚠️ Falla crítica estructural en el endpoint: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+# =====================================================================
+# 🛠️ NUEVO ENDPOINT: PROXY DE DESCARGA SEGURO PARA FIRMWARE (OTA)
+# =====================================================================
+
+@app.get("/telemetria/firmware/download", dependencies=[Depends(verificar_api_key)])
+async def descargar_firmware_proxy():
+    """
+    Descarga el binario completo desde Supabase/S3 a la RAM del backend de forma efímera
+    y se lo entrega al ESP32 con la cabecera Content-Length explícita, eliminando
+    el Transfer-Encoding: chunked que hace fallar al microcontrolador.
+    """
+    try:
+        # 1. Recuperar la URL configurada en Supabase
+        res_control = await asyncio.to_thread(supabase.table("controles").select("url_update").eq("id", 1).execute)
+        if not res_control.data or len(res_control.data) == 0:
+            raise HTTPException(status_code=404, detail="Configuración no encontrada en la base de datos")
+        
+        url_supabase_storage = res_control.data[0].get("url_update")
+        if not url_supabase_storage or url_supabase_storage.strip() == "":
+            raise HTTPException(status_code=400, detail="No hay una URL de actualización válida configurada")
+
+        print(f"🔒 [PROXY SEGURO] Descargando binario de origen: {url_supabase_storage}")
+
+        # 2. Descargar el archivo completo a la RAM del servidor
+        async with httpx.AsyncClient(follow_redirects=True, timeout=60.0) as cliente_red:
+            respuesta_s3 = await cliente_red.get(url_supabase_storage)
+            
+            if respuesta_s3.status_code != 200:
+                print(f"❌ Proxy falló. S3/Supabase devolvió código HTTP: {respuesta_s3.status_code}")
+                raise HTTPException(status_code=respuesta_s3.status_code, detail="Error en almacenamiento de origen")
+        
+        binary_data = respuesta_s3.content
+        tamanio_bytes = len(binary_data)
+        print(f"✅ [PROXY SEGURO] Archivo listo para transferencia. Tamaño: {tamanio_bytes} bytes.")
+
+        # 3. Retornar una respuesta HTTP plana con el tamaño explícito en los Headers
+        return Response(
+            content=binary_data,
+            media_type="application/octet-stream",
+            headers={
+                "Content-Disposition": "attachment; filename=update.bin",
+                "Content-Length": str(tamanio_bytes)  # Evita el Transfer-Encoding: chunked
+            }
+        )
+
+    except HTTPException as error_http:
+        raise error_http
+    except Exception as error_general:
+        print(f"❌ Error catastrófico en el proxy de descarga: {error_general}")
+        raise HTTPException(status_code=500, detail=f"Fallo del proxy: {str(error_general)}")
 
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request, exc):
@@ -366,6 +388,5 @@ async def validation_exception_handler(request, exc):
 
 if __name__ == "__main__":
     import uvicorn
-    import os
     puerto = int(os.environ.get("PORT", 8080))
     uvicorn.run("main:app", host="0.0.0.0", port=puerto, reload=False)
