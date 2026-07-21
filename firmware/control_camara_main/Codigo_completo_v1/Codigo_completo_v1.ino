@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.2"; //  (Incrementar en cada compilación) Versión anterior: 1.2.1
+const String VERSION_ACTUAL = "1.2.3"; //  (Incrementar en cada compilación) Versión anterior: 1.2.2
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
