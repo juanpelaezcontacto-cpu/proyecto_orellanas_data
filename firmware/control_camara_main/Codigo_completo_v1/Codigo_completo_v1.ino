@@ -483,22 +483,22 @@ void actualizarCicloCompresor() {
 }
 
 void calcularTemperaturaAmbiente(float temp_int_sup, float temp_int_inf) {
-  float t_instantanea = 0.0;
+  float temp_control = 0.0;
   bool calculo_valido = false;
 
   if (err_sht_int == 0 && err_scd == 0){
-    t_instantanea = (temp_int_sup + temp_int_inf) / 2.0; 
+    temp_control = (temp_int_inf * 0.6f) + (temp_int_sup * 0.4f); // Damos más peso al fondo/inferior
     calculo_valido = true;
   }else if(err_sht_int == 0){
-    t_instantanea = temp_int_sup;
+    temp_control = temp_int_sup;
     calculo_valido = true;
   }else if(err_scd == 0){
-    t_instantanea = temp_int_inf;
+    temp_control = temp_int_inf;
     calculo_valido = true;
   }
 
   if (calculo_valido){
-    lecturas_historicas_temp[indice_lectura_temp] = t_instantanea;
+    lecturas_historicas_temp[indice_lectura_temp] = temp_control;
     indice_lectura_temp = (indice_lectura_temp + 1) % MAX_MUESTRAS_TEMP; 
   }
   
@@ -513,24 +513,39 @@ void calcularTemperaturaAmbiente(float temp_int_sup, float temp_int_inf) {
 void controlarTemperaturaCultivo() {
   float limite_superior = setpoint_temp + HISTERESIS;             
   float limite_inferior_anticipado = setpoint_temp + ANTICIPACION_CORTE; 
+  // 1. Evaluación de seguridad de sensores
+  bool sht_ok = (err_sht_int == 0);
+  bool scd_ok = (err_scd == 0);
 
-  if (err_sht_int != 0 && err_scd != 0) {
+  if (!sht_ok && !scd_ok) {
     if (estado_compresor == 1) {
       digitalWrite(compresor, LOW);
       estado_compresor = 0;
-      Serial.println("🚨 EMERGENCIA: Sensor SHT o SCD offline. Compresor apagado por seguridad.");
+      tiempo_ultimo_apagado = millis();
+      Serial.println("🚨 EMERGENCIA: Sensores de temperatura offline. Compresor apagado por seguridad.");
     }
-    return; // Sale de la función, no permite encenderlo
+    return; // Sale de la función de manera segura
   }
 
-  if (temp_interior_promedio >= limite_superior && estado_compresor == 0) {
+  // 3. VALIDACIÓN CRUZADA DINÁMICA (Banda Muerta de Seguridad / Anti-Windup)
+  // Si cualquiera de los dos sensores supera de forma individual el setpoint + 1.2°C, 
+  // forzamos el encendido preventivo aunque el promedio general no haya llegado al límite superior.
+  bool disparo_por_sensor_critico = (temp_int_sup >= (setpoint_temp + 1.2f)) || (temp_int_inf >= (setpoint_temp + 1.2f));
+
+
+  if ((temp_interior_promedio  >= limite_superior || disparo_por_sensor_critico )&& estado_compresor == 0) {
     if (permiso_nube_compresor && compresor_disponible) {  //condicion eliminada porque sensor max con problemas: && temp_comp <= TEMP_MAX_COMPRESOR 
       estado_compresor = 1;
       digitalWrite(compresor, HIGH); 
       Serial.println("❄️ Compresor encendido.");
+      if (disparo_por_sensor_critico) {
+        Serial.println("❄️ Compresor encendido por validación cruzada (Pico crítico en sensor individual).");
+      } else {
+        Serial.println("❄️ Compresor encendido por límite superior.");
+      }
     }
   }
-  
+  // 5. CONDICIÓN DE APAGADO
   if ((temp_interior_promedio <= limite_inferior_anticipado || !permiso_nube_compresor) && estado_compresor == 1) {
     estado_compresor = 0;
     digitalWrite(compresor, LOW); 
@@ -538,31 +553,23 @@ void controlarTemperaturaCultivo() {
     tiempo_cambio_ventiladores = millis(); 
     Serial.println("💤 Compresor cortado.");
   }
-  // Bloque desactivado por problemas de funcionamiento con sensor temperatura compresor MAX
-  /*if (estado_compresor ==1 && err_max == 0 && temp_comp > TEMP_MAX_COMPRESOR){
-    digitalWrite(compresor, LOW);
-    estado_compresor = 0;
-    tiempo_ultimo_apagado = millis();
-    tiempo_cambio_ventiladores = millis();
-    Serial.printf(
-      "🛑 PROTECCIÓN TÉRMICA: %.1f °C > %.1f °C. Compresor apagado.\n",
-      temp_comp,
-      TEMP_MAX_COMPRESOR
-    );
-  }*/
+  
 }
 
 // ================= Control local de humedad =================
 // Análogo a controlarTemperaturaCultivo(): histéresis local con veto remoto,
 // nunca reemplazo total por la nube.
 void controlarHumedadCultivo() {
-  // 1. Fallback de Sensores
+  // =================================================================
+  // 1. LECTURA Y PRECEDENCIA DE SENSORES
+  // =================================================================
   float hum_actual = 0.0;
   bool scd_ok = (err_scd == 0);
   bool sht_ok = (err_sht_int == 0);
 
   if (scd_ok && sht_ok) {
-    hum_actual = (hum_int_inf + hum_int_sup) / 2.0f; // Promedio volumétrico
+    // Damos más peso al fondo/inferior
+    hum_actual = (hum_int_inf *0.6f) + (hum_int_sup*0.4f);
   } else if (scd_ok) {
     hum_actual = hum_int_inf;
   } else if (sht_ok) {
@@ -571,78 +578,94 @@ void controlarHumedadCultivo() {
     if (estado_humidificador) {
       estado_humidificador = false;
       digitalWrite(humidificador, LOW);
-      Serial.println("🚨 EMERGENCIA: Sensores de humedad offline. Humidificador apagado.");
+      Serial.println("🚨 EMERGENCIA: Sensores offline. Humidificador apagado.");
     }
     return;
   }
 
   PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
 
-  // 2. Control de Veto de CO2 con Histéresis (72% / 78%)
+  // =================================================================
+  // 2. CONSERVACIÓN DE MASA (PÉRDIDA VÍA EXTRACCIÓN CO2)
+  // =================================================================
+  static bool masa_agua_perdida = false;
+  bool purga_co2_activa = (fase_actual == FRUCTIFICACION && co2 > perfil.co2_setpoint_max && permiso_nube_co2);
+
+  if (purga_co2_activa) masa_agua_perdida = true;
+  if (hum_actual >= perfil.hum_setpoint_max) masa_agua_perdida = false; 
+
   static bool panico_humedad_activo = false;
   if (hum_actual < 72.0f) panico_humedad_activo = true;
   else if (hum_actual >= 78.0f) panico_humedad_activo = false;
 
-  bool hay_exceso_co2 = (fase_actual == FRUCTIFICACION && co2 > perfil.co2_setpoint_max && permiso_nube_co2);
-  if (hay_exceso_co2 && !panico_humedad_activo) {
+  // Si estamos tirando aire y no hay pánico seco, no inyectamos agua
+  if (purga_co2_activa && !panico_humedad_activo) {
     if (estado_humidificador) {
       estado_humidificador = false;
       digitalWrite(humidificador, LOW);
       tiempo_ultimo_apagado_humid = millis();
-      Serial.println("🚨 Humidificador vetado por extracción de CO2.");
     }
-    return;
+    return; 
   }
 
-  // 3. ESTRATEGIA ANTICIPATORIA (FEEDFORWARD POR COMPRESOR)
-  // Evaluamos si el compresor acaba de encender para compensar la caída térmica
-  static unsigned long tiempo_inicio_compresor = 0;
-  static bool compresor_estado_anterior = false;
+  // =================================================================
+  // 3. RETROALIMENTACIÓN BASADA EN DATOS: DERIVADA DE HUMEDAD
+  // =================================================================
+  static float hum_hace_un_minuto = hum_actual;
+  static unsigned long tiempo_ultima_muestra = millis();
+  static bool recuperacion_natural_activa = false;
 
-  if (estado_compresor == 1 && !compresor_estado_anterior) {
-    tiempo_inicio_compresor = millis(); // Detecta el flanco de subida del compresor
-  }
-  compresor_estado_anterior = (estado_compresor == 1);
-
-  bool impulso_anticipatorio = false;
-  // Si el compresor lleva entre 15 y 60 segundos encendido (fase de condensación activa)
-  if (estado_compresor == 1) {
-    unsigned long duracion_compresor = millis() - tiempo_inicio_compresor;
-    if (duracion_compresor >= 15000 && duracion_compresor <= 60000) {
-      // GUARDA DE SEGURIDAD: Solo se pre-activa si estamos al menos un 3% por debajo del límite máximo
-      if (hum_actual < (perfil.hum_setpoint_max - 3.0f)) {
-        impulso_anticipatorio = true;
+  // Calculamos la tasa de cambio cada 60 segundos para filtrar ruido
+  if (millis() - tiempo_ultima_muestra >= 60000) {
+    float delta_hr = hum_actual - hum_hace_un_minuto;
+    
+    if (estado_compresor == 1) {
+      // El compresor está operando, el agua se está atrapando en la placa
+      recuperacion_natural_activa = true; 
+    } else if (recuperacion_natural_activa) {
+      // El compresor está apagado. Evaluamos la física del ambiente:
+      // Si el delta es menor a 0.2%, significa que la humedad se estancó o está cayendo.
+      // Ya no hay aporte natural desde el evaporador.
+      if (delta_hr <= 0.2f) {
+        recuperacion_natural_activa = false;
+        Serial.println("📊 Datos: Retorno natural de humedad finalizado. Derivada plana.");
       }
     }
+    
+    hum_hace_un_minuto = hum_actual;
+    tiempo_ultima_muestra = millis();
   }
 
-  // 4. Lógica de Activación / Apagado
+  // APLICACIÓN DEL VETO POR DATOS
+  // Bloqueamos si la recuperación natural está ocurriendo Y no hemos perdido masa de agua por el sifón
+  if (recuperacion_natural_activa && !masa_agua_perdida) {
+    if (estado_humidificador) {
+      estado_humidificador = false;
+      digitalWrite(humidificador, LOW);
+      tiempo_ultimo_apagado_humid = millis();
+    }
+    return; 
+  }
+
+  // =================================================================
+  // 4. CONTROL REGULAR (HISTÉRESIS CON PROTECCIÓN MECÁNICA)
+  // =================================================================
   unsigned long ahora = millis();
   bool respeta_ciclo_minimo = (ahora - tiempo_ultimo_apagado_humid >= TIEMPO_MIN_CICLO_HUMID);
 
-  // Evaluación del Setpoint Objetivo
-  bool necesita_humedad = (hum_actual < perfil.hum_setpoint_min) || impulso_anticipatorio;
-
-  // CONDICIÓN DE ENCENDIDO
-  if (necesita_humedad && !estado_humidificador) {
+  // ENCENDIDO
+  if (hum_actual < perfil.hum_setpoint_min && !estado_humidificador) {
     if (permiso_nube_humidificador && respeta_ciclo_minimo) {
       estado_humidificador = true;
       digitalWrite(humidificador, HIGH);
-      if (impulso_anticipatorio) {
-        Serial.println("⚡ FEEDFORWARD: Humidificador pre-activado por arranque de compresor.");
-      } else {
-        Serial.println("💧 Humidificador ENCENDIDO por setpoint mínimo.");
-      }
     }
   }
 
-  // CONDICIÓN DE APAGADO (Techo estricto)
-  // Apaga si alcanza el setpoint máximo O si está en pre-activación pero ya se acercó al límite superior
+  // APAGADO
   if ((hum_actual >= perfil.hum_setpoint_max || !permiso_nube_humidificador) && estado_humidificador) {
     estado_humidificador = false;
     digitalWrite(humidificador, LOW);
     tiempo_ultimo_apagado_humid = ahora;
-    Serial.println("💤 Humidificador APAGADO.");
   }
 }
 
@@ -763,15 +786,15 @@ void gestionarVentiladoresInteligentes() {
     pwm_vent_superior = PWM_ENFRIAMIENTO;
     // NOTA: Se remueve cronometro_recirculacion = millis() para no falsear el temporizador del Caso 3.
   }
-  // CASO 2: Post-Enfriamiento
-  else if (estado_compresor == 0 && (millis() - tiempo_ultimo_apagado < POST_ENFRIAMIENTO)) {
-    pwm_vent_lateral = PWM_MEZCLA_SUAVE;
-    pwm_vent_superior = PWM_MEZCLA_SUAVE;
-  }
-  // CASO 3: Emergencia por CO2
+  // CASO 2: Emergencia por CO2
   else if (exceso_co2 && permiso_nube_co2 && err_scd == 0) {
     pwm_vent_lateral = PWM_EXTRACCION; 
     pwm_vent_superior = PWM_EXTRACCION;
+  }
+  // CASO 3: Post-Enfriamiento
+  else if (estado_compresor == 0 && (millis() - tiempo_ultimo_apagado < POST_ENFRIAMIENTO)) {
+    pwm_vent_lateral = PWM_MEZCLA_SUAVE;
+    pwm_vent_superior = PWM_MEZCLA_SUAVE;
   }
   // CASO 4: Recirculación estándar por temporizador
   else {
