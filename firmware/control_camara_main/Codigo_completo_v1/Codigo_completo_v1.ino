@@ -20,7 +20,9 @@ int ultimo_error_ota = 0; // 0 = Sin error / Estado óptimo. Cualquier otro núm
 Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
-const String VERSION_ACTUAL = "1.2.1"; //  (Incrementar en cada compilación) Versión anterior: 1.2.0
+
+const String VERSION_ACTUAL = "1.2.2"; //  (Incrementar en cada compilación) Versión anterior: 1.2.1
+
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
 const char* password = "macp092021";
@@ -84,7 +86,7 @@ float hum_ext = 0.0;
 float temp_int_sup = 0.0;          // SHT Interior Superior 
 float hum_int_sup = 0.0;          
 float temp_int_inf = 0.0;       // SCD40 o Inferior 
-float h_inf = 0.0;       
+float hum_int_inf = 0.0;       
 uint16_t co2 = 0;        
 float resistencia = 0.0; 
 int puerta = 0;          
@@ -140,8 +142,8 @@ int pwm_vent_lateral  = 0; int pwm_vent_superior = 0; int pwm_vent_co2      = 0;
 
 // Calibración
 float setpoint_temp = 20.0;                   
-const float HISTERESIS = 0.6;                       
-const float ANTICIPACION_CORTE = 0.8;               
+const float HISTERESIS = 0.3;                       
+const float ANTICIPACION_CORTE = 0.3;               
 
 // Filtro de Temperatura
 const int MAX_MUESTRAS_TEMP = 10;                   
@@ -434,7 +436,7 @@ void setup() {
   if (estado_scd){
     // Pre-cargar el filtro térmico para evitar arranques con promedio en 0
     Serial.println("Cebando filtro de temperatura...");
-    scd.readMeasurement(co2, t0_int_inf, h_inf);
+    scd.readMeasurement(co2, t0_int_inf, hum_int_inf);
   }
 //***********************************************************
   if (estado_sht_ext){
@@ -554,54 +556,93 @@ void controlarTemperaturaCultivo() {
 // Análogo a controlarTemperaturaCultivo(): histéresis local con veto remoto,
 // nunca reemplazo total por la nube.
 void controlarHumedadCultivo() {
-  // Si el SCD40 no está entregando datos frescos (err_scd), no accionamos
-  // sobre una lectura potencialmente vieja: mantenemos el último estado en
-  // vez de alternar el humidificador a ciegas.
-  if (err_scd != 0) {
-    if(estado_humidificador == true){
+  // 1. Fallback de Sensores
+  float hum_actual = 0.0;
+  bool scd_ok = (err_scd == 0);
+  bool sht_ok = (err_sht_int == 0);
+
+  if (scd_ok && sht_ok) {
+    hum_actual = (hum_int_inf + hum_int_sup) / 2.0f; // Promedio volumétrico
+  } else if (scd_ok) {
+    hum_actual = hum_int_inf;
+  } else if (sht_ok) {
+    hum_actual = hum_int_sup;
+  } else {
+    if (estado_humidificador) {
       estado_humidificador = false;
       digitalWrite(humidificador, LOW);
-      Serial.println("🚨 Sensor SCD offline. Humidificador apagado de emergencia.");
+      Serial.println("🚨 EMERGENCIA: Sensores de humedad offline. Humidificador apagado.");
     }
-    return;       // Sale de la función de manera segura
+    return;
   }
-  // ====== INTERRUPCIÓN POR INYECCIÓN DE AIRE EXTERIOR ======
-  // Si hay exceso de CO2, el ventilador de CO2 meterá aire a presión y desalojará
-  // el aire interno por el agujero inferior. Apagamos el humidificador para no tirar agua.
-  PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
-  float hum_actual = h_inf; // sensor más cercano al humidificador (parte inferior)
 
-  if (fase_actual == FRUCTIFICACION && co2 > perfil.co2_setpoint_max && permiso_nube_co2) {
-    if (hum_actual >= 75.0){
-      if (estado_humidificador == true) {
-        estado_humidificador = false;
-        digitalWrite(humidificador, LOW);
-        tiempo_ultimo_apagado_humid = millis();
-        Serial.println("🚨 Humidificador vetado: Evitando pérdida de humedad por el agujero de salida inferior.");
+  PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
+
+  // 2. Control de Veto de CO2 con Histéresis (72% / 78%)
+  static bool panico_humedad_activo = false;
+  if (hum_actual < 72.0f) panico_humedad_activo = true;
+  else if (hum_actual >= 78.0f) panico_humedad_activo = false;
+
+  bool hay_exceso_co2 = (fase_actual == FRUCTIFICACION && co2 > perfil.co2_setpoint_max && permiso_nube_co2);
+  if (hay_exceso_co2 && !panico_humedad_activo) {
+    if (estado_humidificador) {
+      estado_humidificador = false;
+      digitalWrite(humidificador, LOW);
+      tiempo_ultimo_apagado_humid = millis();
+      Serial.println("🚨 Humidificador vetado por extracción de CO2.");
+    }
+    return;
+  }
+
+  // 3. ESTRATEGIA ANTICIPATORIA (FEEDFORWARD POR COMPRESOR)
+  // Evaluamos si el compresor acaba de encender para compensar la caída térmica
+  static unsigned long tiempo_inicio_compresor = 0;
+  static bool compresor_estado_anterior = false;
+
+  if (estado_compresor == 1 && !compresor_estado_anterior) {
+    tiempo_inicio_compresor = millis(); // Detecta el flanco de subida del compresor
+  }
+  compresor_estado_anterior = (estado_compresor == 1);
+
+  bool impulso_anticipatorio = false;
+  // Si el compresor lleva entre 15 y 60 segundos encendido (fase de condensación activa)
+  if (estado_compresor == 1) {
+    unsigned long duracion_compresor = millis() - tiempo_inicio_compresor;
+    if (duracion_compresor >= 15000 && duracion_compresor <= 60000) {
+      // GUARDA DE SEGURIDAD: Solo se pre-activa si estamos al menos un 3% por debajo del límite máximo
+      if (hum_actual < (perfil.hum_setpoint_max - 3.0f)) {
+        impulso_anticipatorio = true;
       }
-      return; // Bloqueo activo. Bloquea el encendido del humidificador.
-    }else{
-      // Si cae de 75%, no entra al 'if', no hace 'return' e ignora el veto.
-      Serial.println("⚠️ PÁNICO: Humedad críticamente baja (<75%). Anulando veto de CO2 para hidratar el cultivo.");
     }
   }
-  
+
+  // 4. Lógica de Activación / Apagado
   unsigned long ahora = millis();
   bool respeta_ciclo_minimo = (ahora - tiempo_ultimo_apagado_humid >= TIEMPO_MIN_CICLO_HUMID);
 
-  if (hum_actual < perfil.hum_setpoint_min && estado_humidificador == false) {
+  // Evaluación del Setpoint Objetivo
+  bool necesita_humedad = (hum_actual < perfil.hum_setpoint_min) || impulso_anticipatorio;
+
+  // CONDICIÓN DE ENCENDIDO
+  if (necesita_humedad && !estado_humidificador) {
     if (permiso_nube_humidificador && respeta_ciclo_minimo) {
       estado_humidificador = true;
       digitalWrite(humidificador, HIGH);
-      Serial.println("💧 Humidificador encendido.");
+      if (impulso_anticipatorio) {
+        Serial.println("⚡ FEEDFORWARD: Humidificador pre-activado por arranque de compresor.");
+      } else {
+        Serial.println("💧 Humidificador ENCENDIDO por setpoint mínimo.");
+      }
     }
   }
 
-  if ((hum_actual >= perfil.hum_setpoint_max || !permiso_nube_humidificador) && estado_humidificador == true) {
+  // CONDICIÓN DE APAGADO (Techo estricto)
+  // Apaga si alcanza el setpoint máximo O si está en pre-activación pero ya se acercó al límite superior
+  if ((hum_actual >= perfil.hum_setpoint_max || !permiso_nube_humidificador) && estado_humidificador) {
     estado_humidificador = false;
     digitalWrite(humidificador, LOW);
     tiempo_ultimo_apagado_humid = ahora;
-    Serial.println("💤 Humidificador apagado.");
+    Serial.println("💤 Humidificador APAGADO.");
   }
 }
 
@@ -708,37 +749,45 @@ void gestionarVentiladoresInteligentes() {
   static int ultimo_pwm_lateral = -1;
   static int ultimo_pwm_superior = -1;
 
-  // Evaluamos si físicamente hay una condición de exceso de CO2 en fructificación
   PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
   bool exceso_co2 = (fase_actual == FRUCTIFICACION && co2 > perfil.co2_setpoint_max);
+  
+  // PWMs moderados para evitar cizalla de aire sobre las orellanas
+  const int PWM_MEZCLA_SUAVE = 80;   // ~30% velocidad: mezcla niebla sin secar hongo
+  const int PWM_ENFRIAMIENTO = 180;  // ~70% velocidad: homogeniza temperatura
+  const int PWM_EXTRACCION   = 255;  // 100% velocidad: pánico de CO2
 
-  // CASO 1: Compresor activo o en post-enfriamiento (Prioridad máxima de mezcla térmica)
-  if (estado_compresor == 1 || (estado_compresor == 0 && (millis() - tiempo_ultimo_apagado < POST_ENFRIAMIENTO))) {
-    pwm_vent_lateral = 255; 
-    pwm_vent_superior = 255;
-    cronometro_recirculacion = millis(); 
-  // CASO 2: Emergencia de CO2 (Inyección externa activa).
-  // Forzamos recirculación interna para romper el "túnel" de aire y obligar al aire fresco 
-  // a barrer el CO2 de los bloques de hongo antes de que escape por el agujero inferior.
-  }else if (exceso_co2 && permiso_nube_co2 && err_scd == 0) {
-      pwm_vent_lateral = 255; 
-      pwm_vent_superior = 255;
-      cronometro_recirculacion = millis();
+  // CASO 1: Compresor activo
+  if (estado_compresor == 1) {
+    pwm_vent_lateral = PWM_ENFRIAMIENTO; 
+    pwm_vent_superior = PWM_ENFRIAMIENTO;
+    // NOTA: Se remueve cronometro_recirculacion = millis() para no falsear el temporizador del Caso 3.
   }
-  // CASO 3: Ciclo estándar por tiempo (Sin alarmas térmicas ni de gases)
-   else {
+  // CASO 2: Post-Enfriamiento
+  else if (estado_compresor == 0 && (millis() - tiempo_ultimo_apagado < POST_ENFRIAMIENTO)) {
+    pwm_vent_lateral = PWM_MEZCLA_SUAVE;
+    pwm_vent_superior = PWM_MEZCLA_SUAVE;
+  }
+  // CASO 3: Emergencia por CO2
+  else if (exceso_co2 && permiso_nube_co2 && err_scd == 0) {
+    pwm_vent_lateral = PWM_EXTRACCION; 
+    pwm_vent_superior = PWM_EXTRACCION;
+  }
+  // CASO 4: Recirculación estándar por temporizador
+  else {
     unsigned long tiempo_desde_ultimo_ciclo = millis() - cronometro_recirculacion;
     if (tiempo_desde_ultimo_ciclo < DURACION_RECIRCULACION) {
-      pwm_vent_lateral = 255; 
-      pwm_vent_superior = 255;
-    } else if (tiempo_desde_ultimo_ciclo < INTERVALO_RECIRCULACION) {
+      pwm_vent_lateral = PWM_MEZCLA_SUAVE; 
+      pwm_vent_superior = PWM_MEZCLA_SUAVE;
+    } else if (tiempo_desde_ultimo_ciclo < (DURACION_RECIRCULACION + INTERVALO_RECIRCULACION)) {
       pwm_vent_lateral = 0; 
       pwm_vent_superior = 0;
     } else {
-      cronometro_recirculacion = millis();
+      cronometro_recirculacion = millis(); // Resetea el ciclo solo al completar el intervalo
     }
   }
-  // Se mantiene intacto tu bloque original de escritura física por ledcWrite
+
+  // Escritura física por cambio de estado
   if (pwm_vent_lateral != ultimo_pwm_lateral) {
     ledcWrite(vent_lateral, pwm_vent_lateral);
     ultimo_pwm_lateral = pwm_vent_lateral;
@@ -760,7 +809,7 @@ void leersensores(){
     bool dataReady = false;
     scd.getDataReadyStatus(dataReady); 
     if (dataReady) {
-      scd.readMeasurement(co2, temp_int_inf, h_inf);
+      scd.readMeasurement(co2, temp_int_inf, hum_int_inf);
       if ( err_scd != 0){
         Serial.println("✅ SCD40 volvió a entregar datos.");
       }
@@ -1017,7 +1066,7 @@ void loop() {
     bufferCultivo[indiceEscritura].hum_int_sup  = hum_int_sup;
     bufferCultivo[indiceEscritura].co2_inf      = co2; 
     bufferCultivo[indiceEscritura].temp_int_inf = temp_int_inf;
-    bufferCultivo[indiceEscritura].hum_int_inf  = h_inf;
+    bufferCultivo[indiceEscritura].hum_int_inf  = hum_int_inf;
     bufferCultivo[indiceEscritura].resistencia  = resistencia;
     bufferCultivo[indiceEscritura].puerta       = estado_Puerta;
     bufferCultivo[indiceEscritura].voltaje         = pzem_voltaje;
