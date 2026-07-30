@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.3"; //  (Incrementar en cada compilación) Versión anterior: 1.2.2
+const String VERSION_ACTUAL = "1.2.4"; //  (Incrementar en cada compilación) Versión anterior: 1.2.3
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
@@ -153,7 +153,7 @@ float temp_interior_promedio = 0.0;
 
 // Recirculación
 const unsigned long POST_ENFRIAMIENTO = 180000;       
-const unsigned long INTERVALO_RECIRCULACION = 900000; 
+const unsigned long INTERVALO_RECIRCULACION = 60000; //900000
 const unsigned long DURACION_RECIRCULACION = 120000;  
 
 unsigned long cronometro_recirculacion = 0;
