@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.4"; //  (Incrementar en cada compilación) Versión anterior: 1.2.3
+const String VERSION_ACTUAL = "1.2.5"; //  (Incrementar en cada compilación) Versión anterior: 1.2.3
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
@@ -113,8 +113,7 @@ struct RegistroCompletoHistorial {
 }; 
 
 RegistroCompletoHistorial bufferCultivo[MAX_LECTURAS];
-
-const char* serverName = "https://orellanas-backend-production.up.railway.app/telemetria";
+const char* serverName = "https://proyectoorellanasdata-production.up.railway.app:8080/telemetria"; // cuenta juanpelaezcontacto: "https://orellanas-backend-production.up.railway.app/telemetria"
 unsigned long ultimoEnvio = 0; 
 const unsigned long intervaloEnvio = 5000; 
 
@@ -183,7 +182,7 @@ PerfilCultivo perfiles[2][2] = {
   // Recomendación científica: Mantener un descenso de 5–10 °C respecto a la fase de colonización para inducir la fructificación.
   // PLEUROTUS OSTREATUS
   {
-    {26.0, 85.0, 90.0, 15000},  // Incubación: setpoint alto = compresor casi inactivo
+    {25.0, 85.0, 90.0, 15000},  // Incubación: setpoint alto = compresor casi inactivo
     {15.5, 88.0, 95.0,   900}   // Fructificación
   },
   // HERICIUM ERINACEUS
@@ -274,7 +273,7 @@ TT0mQ/r5XyA4MEAiabn7XJjvCERlF2dcn2wqJw+CreTkkQ2R
 
 
 void ejecutarActualizacionOTA(String url_binario) {
-  String url_proxy_railway = "https://orellanas-backend-production.up.railway.app/telemetria/firmware/download";
+  String url_proxy_railway = "https://proyectoorellanasdata-production.up.railway.app/telemetria/firmware/download"; //cuenta juanpelaezcontacto: https://orellanas-backend-production.up.railway.app/telemetria/firmware/download
 
   Serial.println("\n🔒 [OTA PROXY SEGURO] Iniciando verificación de firmas con Railway...");
   Serial.println("🚨 [OTA] Forzando apagado de actuadores por seguridad...");
