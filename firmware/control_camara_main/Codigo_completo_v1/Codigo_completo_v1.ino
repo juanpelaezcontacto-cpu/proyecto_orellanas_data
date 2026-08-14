@@ -317,9 +317,9 @@ void setup() {
   if (batchID == 0) {
     batchID = 1;
 }
-  // Cargar especie/fase persistidas (sobreviven a reinicios) antes de aplicar el perfil
-  especie_actual = (Especie) prefs.getUChar("especie", PLEUROTUS);
-  fase_actual    = (Fase)    prefs.getUChar("fase", INCUBACION);
+    // Cargar especie/fase persistidas (sobreviven a reinicios) antes de aplicar el perfil
+    especie_actual = (Especie) prefs.getUChar("especie", PLEUROTUS);
+    fase_actual    = (Fase)    prefs.getUChar("fase", INCUBACION);
 
   pinMode(humidificador, OUTPUT);
   digitalWrite(humidificador, estado_humidificador);
