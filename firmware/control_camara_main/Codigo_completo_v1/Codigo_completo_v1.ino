@@ -193,7 +193,7 @@ PerfilCultivo perfiles[2][2] = {
 };
 
 // ================= Permisos remotos (veto de la nube, no reemplazo del control local) =================
-bool permiso_nube_humidificador = true;
+bool permiso_nube_humidificador = false;
 bool permiso_nube_co2           = true;
 bool permiso_nube_luz           = true;
 
