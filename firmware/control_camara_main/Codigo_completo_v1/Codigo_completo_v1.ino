@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.5"; //  (Incrementar en cada compilación) Versión anterior: 1.2.3
+const String VERSION_ACTUAL = "1.2.5"; //  (Incrementar en cada compilación) Versión anterior: 1.2.4
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
@@ -60,14 +60,14 @@ HardwareSerial PZEMSerial(2);
 PZEM004Tv30 pzem(PZEMSerial, RXD2, TXD2);  
 
 // --- Configuración de Tiempos ---
-const unsigned long INTERVALO_MUESTREO = 15000;       
-const unsigned long INTERVALO_TRANSMISION = 300000;  
+const unsigned long INTERVALO_MUESTREO = 1000;       // Predeterminado 15000       
+const unsigned long INTERVALO_TRANSMISION = 20000;   // Predeterminaod 300000
 unsigned long ultimoMuestreo = 0;
 unsigned long ultimaTransmisionRafaga = 0;
 const unsigned long tiempo_reintento_envio_rafaga = 30000;
 
 // --- Configuración del Buffer Local ---
-const int MAX_LECTURAS = 2; 
+const int MAX_LECTURAS = 20;       // predeterminadas: 20
 int indiceEscritura = 0;          // Próxima posición donde se escribirá
 int cantidadLecturas = 0;         // Número de lecturas válidas almacenadas
 bool bufferLleno = false;         // Indica si ya comenzó la sobrescritura
@@ -168,7 +168,7 @@ enum Fase    { INCUBACION = 0, FRUCTIFICACION = 1 };
 
 
 Especie especie_actual = PLEUROTUS;
-Fase    fase_actual     = FRUCTIFICACION;
+Fase    fase_actual     = INCUBACION;
 
 struct PerfilCultivo {
   float temp_setpoint;   // setpoint usado por la histéresis existente (solo enfriamiento)

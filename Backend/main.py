@@ -384,7 +384,7 @@ async def validation_exception_handler(request, exc):
     return JSONResponse(
         status_code=422,
         content={"detail": exc.errors(), "body": exc.body},
-    )
+    
 
 if __name__ == "__main__":
     import uvicorn
