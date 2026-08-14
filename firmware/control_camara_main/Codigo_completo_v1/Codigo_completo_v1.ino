@@ -113,7 +113,7 @@ struct RegistroCompletoHistorial {
 }; 
 
 RegistroCompletoHistorial bufferCultivo[MAX_LECTURAS];
-const char* serverName = "https://proyectoorellanasdata-production.up.railway.app:8080/telemetria"; // cuenta juanpelaezcontacto: "https://orellanas-backend-production.up.railway.app/telemetria"
+const char* serverName = "http://proyectoorellanasdata-production.up.railway.app:8080/telemetria"; // cuenta juanpelaezcontacto: "https://orellanas-backend-production.up.railway.app/telemetria"
 unsigned long ultimoEnvio = 0; 
 const unsigned long intervaloEnvio = 5000; 
 
