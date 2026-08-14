@@ -153,7 +153,7 @@ float temp_interior_promedio = 0.0;
 
 // Recirculación
 const unsigned long POST_ENFRIAMIENTO = 180000;       
-const unsigned long INTERVALO_RECIRCULACION = 900000; 
+const unsigned long INTERVALO_RECIRCULACION = 60000; //900000
 const unsigned long DURACION_RECIRCULACION = 120000;  
 
 unsigned long cronometro_recirculacion = 0;
