@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.5"; //  (Incrementar en cada compilación) Versión anterior: 1.2.4
+const String VERSION_ACTUAL = "1.2.6"; //  (Incrementar en cada compilación) Versión anterior: 1.2.5
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
@@ -61,7 +61,7 @@ PZEM004Tv30 pzem(PZEMSerial, RXD2, TXD2);
 
 // --- Configuración de Tiempos ---
 const unsigned long INTERVALO_MUESTREO = 1000;       // Predeterminado 15000       
-const unsigned long INTERVALO_TRANSMISION = 20000;   // Predeterminaod 300000
+const unsigned long INTERVALO_TRANSMISION = 30000;   // Predeterminaod 300000
 unsigned long ultimoMuestreo = 0;
 unsigned long ultimaTransmisionRafaga = 0;
 const unsigned long tiempo_reintento_envio_rafaga = 30000;
@@ -319,7 +319,7 @@ void setup() {
 }
   // Cargar especie/fase persistidas (sobreviven a reinicios) antes de aplicar el perfil
   especie_actual = (Especie) prefs.getUChar("especie", PLEUROTUS);
-  fase_actual    = (Fase)    prefs.getUChar("fase", FRUCTIFICACION);
+  fase_actual    = (Fase)    prefs.getUChar("fase", INCUBACION);
 
   pinMode(humidificador, OUTPUT);
   digitalWrite(humidificador, estado_humidificador);
