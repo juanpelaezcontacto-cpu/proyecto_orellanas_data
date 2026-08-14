@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.6"; //  (Incrementar en cada compilación) Versión anterior: 1.2.5
+const String VERSION_ACTUAL = "1.2.7"; //  (Incrementar en cada compilación) Versión anterior: 1.2.6
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
@@ -60,8 +60,8 @@ HardwareSerial PZEMSerial(2);
 PZEM004Tv30 pzem(PZEMSerial, RXD2, TXD2);  
 
 // --- Configuración de Tiempos ---
-const unsigned long INTERVALO_MUESTREO = 1000;       // Predeterminado 15000       
-const unsigned long INTERVALO_TRANSMISION = 30000;   // Predeterminaod 300000
+const unsigned long INTERVALO_MUESTREO = 15000;       // Predeterminado 15000       
+const unsigned long INTERVALO_TRANSMISION = 300000;   // Predeterminaod 300000
 unsigned long ultimoMuestreo = 0;
 unsigned long ultimaTransmisionRafaga = 0;
 const unsigned long tiempo_reintento_envio_rafaga = 30000;
@@ -187,7 +187,7 @@ PerfilCultivo perfiles[2][2] = {
   },
   // HERICIUM ERINACEUS
   {
-    {23.0, 85.0, 90.0, 15000},  // Incubación
+    {25.0, 85.0, 90.0, 15000},  // Incubación
     {18.0, 88.0, 95.0,   700}   // Fructificación (más sensible al CO2 alto)
   }
 };
