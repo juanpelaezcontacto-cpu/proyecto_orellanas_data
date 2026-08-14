@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.3"; //  (Incrementar en cada compilación) Versión anterior: 1.2.2
+const String VERSION_ACTUAL = "1.2.4"; //  (Incrementar en cada compilación) Versión anterior: 1.2.3
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
@@ -180,10 +180,11 @@ struct PerfilCultivo {
 
 // [especie][fase] -> {temp_setpoint, hum_setpoint_min, hum_setpoint_max, co2_setpoint_max}
 PerfilCultivo perfiles[2][2] = {
+  // Recomendación científica: Mantener un descenso de 5–10 °C respecto a la fase de colonización para inducir la fructificación.
   // PLEUROTUS OSTREATUS
   {
     {26.0, 85.0, 90.0, 15000},  // Incubación: setpoint alto = compresor casi inactivo
-    {17.5, 88.0, 95.0,   900}   // Fructificación
+    {15.5, 88.0, 95.0,   900}   // Fructificación
   },
   // HERICIUM ERINACEUS
   {
@@ -485,8 +486,9 @@ void actualizarCicloCompresor() {
 void calcularTemperaturaAmbiente(float temp_int_sup, float temp_int_inf) {
   float temp_control = 0.0;
   bool calculo_valido = false;
-
-  if (err_sht_int == 0 && err_scd == 0){
+  // El sensor sht superior esta entregando datos con mucho ruido
+  // Por el momento, se dejara de usar este sensor para el control y se usara solo el scd que entrega señal sin ruido
+  /*if (err_sht_int == 0 && err_scd == 0){
     temp_control = (temp_int_inf * 0.6f) + (temp_int_sup * 0.4f); // Damos más peso al fondo/inferior
     calculo_valido = true;
   }else if(err_sht_int == 0){
@@ -495,7 +497,9 @@ void calcularTemperaturaAmbiente(float temp_int_sup, float temp_int_inf) {
   }else if(err_scd == 0){
     temp_control = temp_int_inf;
     calculo_valido = true;
-  }
+  }*/
+  temp_control = temp_int_inf;
+  calculo_valido = true;
 
   if (calculo_valido){
     lecturas_historicas_temp[indice_lectura_temp] = temp_control;
@@ -566,8 +570,9 @@ void controlarHumedadCultivo() {
   float hum_actual = 0.0;
   bool scd_ok = (err_scd == 0);
   bool sht_ok = (err_sht_int == 0);
-
-  if (scd_ok && sht_ok) {
+  // EL sensor sht superior esta entregando demasiado ruido, lo que genera un control basado en ruido.
+  // Se Propone controlar la humedad basados en el sensor inferior scd para probar el sistema
+  /*if (scd_ok && sht_ok) {
     // Damos más peso al fondo/inferior
     hum_actual = (hum_int_inf *0.6f) + (hum_int_sup*0.4f);
   } else if (scd_ok) {
@@ -581,8 +586,8 @@ void controlarHumedadCultivo() {
       Serial.println("🚨 EMERGENCIA: Sensores offline. Humidificador apagado.");
     }
     return;
-  }
-
+  }*/
+  hum_actual = hum_int_inf;// asignación temporal hasta que se
   PerfilCultivo perfil = perfiles[especie_actual][fase_actual];
 
   // =================================================================
@@ -667,7 +672,24 @@ void controlarHumedadCultivo() {
     digitalWrite(humidificador, LOW);
     tiempo_ultimo_apagado_humid = ahora;
   }
+  // El ventilador de c02, es el unico actuador que puede reducir la humedad en el sistema junto con el compresor
+  // Si el compresor se activa para reducir la humedad, una vez apagado el compresor, la humedad que habia antes que el compresor encendiera, volvera al sistema
+  // en cambio, si la humedad externa es menor que la interior y se inyecta aire del exterior, la humedad puede disminuir lentamente.
+  // hace falta incluir en la condicion "si la humedad externa es menor que la interior "
+  // normalmente, la humedad externa es menor que la interior
+    if (hum_actual >= perfil.hum_setpoint_max ) {
+      pwm_vent_co2 = 255;
+      pwm_vent_superior = 255;
+       ledcWrite(vent_co2, pwm_vent_co2);
+      ledcWrite(vent_superior, pwm_vent_superior);
+    }else{
+      pwm_vent_co2 = 0;
+      pwm_vent_superior = 0;
+      ledcWrite(vent_co2, pwm_vent_co2);
+      ledcWrite(vent_superior, pwm_vent_superior);
+    }
 }
+
 
 // ================= Control local de CO2 =================
 // PWM proporcional sobre el ventilador superior de intercambio de aire
