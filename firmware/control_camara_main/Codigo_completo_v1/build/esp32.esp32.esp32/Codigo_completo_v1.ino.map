@@ -56434,10 +56434,7 @@ LOAD C:/Users/Orlando/AppData/Local/Arduino15/packages/esp32/tools/esp-x32/2601/
  .data.permiso_nube_co2
                 0x3ffbdb85        0x1 C:\Users\Orlando\AppData\Local\arduino\sketches\635EC7C7EEE46DB455D1CA2FBB787BF1\sketch\Codigo_completo_v1.ino.cpp.o
                 0x3ffbdb85                permiso_nube_co2
- .data.permiso_nube_humidificador
-                0x3ffbdb86        0x1 C:\Users\Orlando\AppData\Local\arduino\sketches\635EC7C7EEE46DB455D1CA2FBB787BF1\sketch\Codigo_completo_v1.ino.cpp.o
-                0x3ffbdb86                permiso_nube_humidificador
- *fill*         0x3ffbdb87        0x1 
+ *fill*         0x3ffbdb86        0x2 
  .data.perfiles
                 0x3ffbdb88       0x40 C:\Users\Orlando\AppData\Local\arduino\sketches\635EC7C7EEE46DB455D1CA2FBB787BF1\sketch\Codigo_completo_v1.ino.cpp.o
                 0x3ffbdb88                perfiles
@@ -57481,7 +57478,9 @@ LOAD C:/Users/Orlando/AppData/Local/Arduino15/packages/esp32/tools/esp-x32/2601/
  .bss.luz_fotoperiodo_on
                 0x3ffc3fae        0x1 C:\Users\Orlando\AppData\Local\arduino\sketches\635EC7C7EEE46DB455D1CA2FBB787BF1\sketch\Codigo_completo_v1.ino.cpp.o
                 0x3ffc3fae                luz_fotoperiodo_on
- *fill*         0x3ffc3faf        0x1 
+ .bss.permiso_nube_humidificador
+                0x3ffc3faf        0x1 C:\Users\Orlando\AppData\Local\arduino\sketches\635EC7C7EEE46DB455D1CA2FBB787BF1\sketch\Codigo_completo_v1.ino.cpp.o
+                0x3ffc3faf                permiso_nube_humidificador
  .bss.fase_actual
                 0x3ffc3fb0        0x4 C:\Users\Orlando\AppData\Local\arduino\sketches\635EC7C7EEE46DB455D1CA2FBB787BF1\sketch\Codigo_completo_v1.ino.cpp.o
                 0x3ffc3fb0                fase_actual
