@@ -67,7 +67,7 @@ unsigned long ultimaTransmisionRafaga = 0;
 const unsigned long tiempo_reintento_envio_rafaga = 30000;
 
 // --- Configuración del Buffer Local ---
-const int MAX_LECTURAS = 20; 
+const int MAX_LECTURAS = 2; 
 int indiceEscritura = 0;          // Próxima posición donde se escribirá
 int cantidadLecturas = 0;         // Número de lecturas válidas almacenadas
 bool bufferLleno = false;         // Indica si ya comenzó la sobrescritura
