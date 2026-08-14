@@ -21,7 +21,7 @@ Preferences prefs;
 uint32_t batchID; // Declarar el contador:
 const char* DEVICE_ID = "CAMARA_01";
 
-const String VERSION_ACTUAL = "1.2.8"; //  (Incrementar en cada compilación) Versión anterior: 1.2.7
+const String VERSION_ACTUAL = "1.2.9"; //  (Incrementar en cada compilación) Versión anterior: 1.2.8
 
 // Credenciales de la red Wi-Fi
 const char* ssid = "MALEJA_2.4";
@@ -313,10 +313,13 @@ void ejecutarActualizacionOTA(String url_binario) {
 
 void setup() {
   prefs.begin("orellanas", false);
+  prefs.remove("fase");              // Borra el valor guardado para "fase"
+  prefs.remove("especie");          // Opcional: Borra también "especie" si quieres reiniciarlo
   batchID = prefs.getUInt("batch_id", 1);
   if (batchID == 0) {
     batchID = 1;
-}
+  }
+  
     // Cargar especie/fase persistidas (sobreviven a reinicios) antes de aplicar el perfil
     especie_actual = (Especie) prefs.getUChar("especie", PLEUROTUS);
     fase_actual    = (Fase)    prefs.getUChar("fase", INCUBACION);
